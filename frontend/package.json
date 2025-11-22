@@ -1,5 +1,5 @@
 {
-  "name": "frontend",
+  "name": "timecircle-app",
   "version": "0.1.0",
   "private": true,
   "dependencies": {
@@ -10,7 +10,8 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-scripts": "5.0.1",
-    "web-vitals": "^2.1.4"
+    "web-vitals": "^2.1.4",
+    "axios": "^1.13.2"
   },
   "scripts": {
     "start": "react-scripts start",
