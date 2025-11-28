@@ -74,7 +74,6 @@ class Servicio(models.Model):
 class Intercambio(models.Model):
   class Meta:
     db_table = "intercambio"
-
     constraints = [
       models.CheckConstraint(
         # Comprueba si la fecha de fin es mayor que fecha de inicio
@@ -82,6 +81,11 @@ class Intercambio(models.Model):
         name='fechas_validas'
       )
     ]
+  class Estado(models.IntegerChoices):
+    SOLICITADO = 0, _('Solicitado')
+    EN_NEGOCIACION = 1, _('En negociación')
+    ACEPTADO = 2, _('Aceptado')
+    CANCELADO = 3, _('Cancelado')
 
   id = models.IntegerField(auto_created=True,primary_key=True)
   solicitante = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING, related_name="solicitante")
@@ -89,6 +93,11 @@ class Intercambio(models.Model):
   torrijas = models.PositiveIntegerField() # horas
   fecha_inicio = models.DateTimeField(auto_now=True)
   fecha_final = models.DateTimeField()
+  estado = models.CharField(
+    choices=Estado.choices,
+    blank=True,
+    default=Estado.SOLICITADO
+  )
 
 class Transaccion(models.Model):
   class Meta:
