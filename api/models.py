@@ -3,10 +3,10 @@ from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 
 class Usuario(models.Model):
-  class Sexo(models.IntegerChoices):
-    MASCULINO = 0, _('Masculino')
-    FEMENINO = 1, _('Femenino')
-    OTRO = 2, _('Otro')
+  class Sexo(models.TextChoices):
+    MASCULINO = 'M', _('Masculino')
+    FEMENINO = 'F', _('Femenino')
+    OTRO = 'O', _('Otro')
 
   class Meta:
     db_table = "usuario"
