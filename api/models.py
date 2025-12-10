@@ -1,25 +1,21 @@
 from django.db import models
 from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
+from django.contrib.auth.models import AbstractUser
 
-class Usuario(models.Model):
-  class Sexo(models.TextChoices):
-    MASCULINO = 'M', _('Masculino')
-    FEMENINO = 'F', _('Femenino')
-    OTRO = 'O', _('Otro')
+class Usuario(AbstractUser):
+  SEXO_CHOICES = [
+    ('M', _("Masculino")),
+    ('F', _("Femenino")),
+    ('O', _("Otro"))
+  ]
 
   class Meta:
     db_table = "usuario"
 
-  id = models.IntegerField(auto_created=True,primary_key=True)
-  nombre = models.TextField(max_length=75)
-  apellidos = models.TextField(max_length=150)
   dni = models.CharField(max_length=9,unique=True)
-  edad = models.PositiveIntegerField()
-  sexo = models.CharField(
-    default=Sexo.OTRO,
-    choices=Sexo.choices
-  )
+  fecha_nacimiento = models.DateTimeField(auto_now_add=True)
+  sexo = models.CharField(choices=SEXO_CHOICES)
 
 class Etiqueta(models.Model):
   class Meta:
