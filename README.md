@@ -1,4 +1,5 @@
 # TimeCircle – Banco de Tiempo
+
 <img width="1024" height="1024" alt="ChatGPT Image 11 dic 2025, 18_23_33" src="https://github.com/user-attachments/assets/b26b1fa0-bc4c-4b01-a961-715b9eacfd9e" />
 
 #### Proyecto TFG DAM · Aplicación Web Full-Stack
@@ -31,47 +32,61 @@ El objetivo del proyecto es facilitar la colaboración entre usuarios, mejorar l
 ## 🛠️ Tecnologías utilizadas
 
 ### Frontend
+
 ![React](https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=white)
 
 ### Backend
+
 ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![Django](https://img.shields.io/badge/Django-092E20?style=for-the-badge&logo=django&logoColor=white)
 ![Django REST Framework](https://img.shields.io/badge/DRF-ff1709?style=for-the-badge&logo=django&logoColor=white)
 
 ### Base de datos
+
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql&logoColor=white)
 
 ### Autenticación
+
 ![JWT](https://img.shields.io/badge/JWT-000000?style=for-the-badge&logo=jsonwebtokens&logoColor=white)
 
 ### Documentación API
+
 ![Swagger](https://img.shields.io/badge/Swagger-85EA2D?style=for-the-badge&logo=swagger&logoColor=black)
 ![DRF Spectacular](https://img.shields.io/badge/DRF_Spectacular-1f6feb?style=for-the-badge)
 
 ### Despliegue
+
 ![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
 ![Firebase](https://img.shields.io/badge/Firebase-FFCA28?style=for-the-badge&logo=firebase&logoColor=black)
 
 ### Versionado
+
 ![Git](https://img.shields.io/badge/Git-F05032?style=for-the-badge&logo=git&logoColor=white)
 ![GitHub](https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white)
 
 ### CI/CD
+
 ![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-2088FF?style=for-the-badge&logo=githubactions&logoColor=white)
 
 > [!NOTE]
 > No incluye:
+>
 > - Integración con redes sociales.
 > - Aplicación móvil nativa (solo version web responsive).
 
-## ⚙️ Instalación y ejecución
+# ⚙️ Instalación y ejecución
+
+## Backend
+
 ### 1️⃣ Clonar el repositorio
+
 ```bash
 git clone https://github.com/Xarzy/timecircle.git
 cd timecircle
 ```
 
 ### 2️⃣ Configurar entorno virtual
+
 ```bash
 python -m venv venv
 source venv/bin/activate     # Linux / Mac
@@ -79,31 +94,52 @@ source venv/bin/activate     # Linux / Mac
 ```
 
 ### 3️⃣ Instalar dependencias
+
 ```bash
 pip install -r requirements.txt
 ```
 
 ### 4️⃣ Aplicar migraciones
+
 ```bash
 python manage.py migrate
 ```
 
 ### 5️⃣ Crear superusuario
+
 ```bash
 python manage.py createsuperuser
 ```
 
 ### 6️⃣ Ejecutar servidor
+
 ```bash
 python manage.py runserver
 ```
+
 > [!TIP]
 > Puedes ejecutar los tests con este comando:
+>
 > ```bash
 > python manage.py test
->```
+> ```
+
+## Frontend
+
+### 1️⃣ Instalar dependencias
+
+```bash
+cd frontend/
+npm install
+```
+
+### 2️⃣ Ejecutar servidor
+
+```bash
+npm start
+```
 
 # 🤝 Autor
 
-__Álex-Guillermo Carpio García__\
-***Proyecto TFG · Desarrollo de Aplicaciones Multiplataforma***
+Álex-Guillermo Carpio García @Xarzy
+**_Proyecto TFG · Desarrollo de Aplicaciones Multiplataforma_**
