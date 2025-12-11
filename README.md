@@ -1,4 +1,5 @@
 [![Django CI](https://github.com/IES-Almunia-25-26-PIDAW/timecircle-app/actions/workflows/django.yml/badge.svg)](https://github.com/IES-Almunia-25-26-PIDAW/timecircle-app/actions/workflows/django.yml)
+[![CodeQL](https://github.com/IES-Almunia-25-26-PIDAW/timecircle-app/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/IES-Almunia-25-26-PIDAW/timecircle-app/actions/workflows/github-code-scanning/codeql)
 
 # TimeCircle – Banco de Tiempo
 
