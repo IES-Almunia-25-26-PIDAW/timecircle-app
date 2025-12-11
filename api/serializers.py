@@ -5,6 +5,7 @@ from .models import *
 # --------------------------
 # USUARIO
 # --------------------------
+
 class UsuarioSerializer(serializers.ModelSerializer):
 
     class Meta:

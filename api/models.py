@@ -14,8 +14,8 @@ class Usuario(AbstractUser):
     db_table = "usuario"
 
   dni = models.CharField(max_length=9,unique=True)
-  fecha_nacimiento = models.DateTimeField(auto_now_add=True)
-  sexo = models.CharField(choices=SEXO_CHOICES)
+  fecha_nacimiento = models.DateField(auto_now_add=True,null=False,blank=True)
+  sexo = models.CharField(choices=SEXO_CHOICES, db_default=('O', _('Otro')))
 
 class Etiqueta(models.Model):
   class Meta:
