@@ -141,5 +141,5 @@ npm start
 
 # 🤝 Autor
 
-Álex-Guillermo Carpio García @Xarzy
+**Álex-Guillermo Carpio García @Xarzy**
 **_Proyecto TFG · Desarrollo de Aplicaciones Multiplataforma_**
