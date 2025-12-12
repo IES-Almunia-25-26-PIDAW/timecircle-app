@@ -141,7 +141,7 @@ npm install
 ### 2️⃣ Ejecutar servidor
 
 ```bash
-npm start
+npm run dev
 ```
 
 # 🤝 Autor
