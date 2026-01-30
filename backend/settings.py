@@ -39,7 +39,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'api',
     'rest_framework',
-    'drf_spectacular',
+    'drf_spectacular'
 ]
 
 MIDDLEWARE = [
@@ -171,4 +171,4 @@ SPECTACULAR_SETTINGS = {
     },
 }
 
-AUTH_USER_MODEL = "api.Usuario"
+AUTH_USER_MODEL = "api.User"

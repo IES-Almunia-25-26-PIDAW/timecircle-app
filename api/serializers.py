@@ -6,96 +6,74 @@ from .models import *
 # USUARIO
 # --------------------------
 
-class UsuarioSerializer(serializers.ModelSerializer):
+class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
-        model = Usuario
+        model = User
         fields = [
-            "id", "username", "email", "dni", "fecha_nacimiento", "sexo",
-            "first_name", "last_name", "is_active", "is_staff"
+            "id", "username", "email", "dni", "birth_date", "gender",
+            "first_name", "last_name", "is_active", "is_staff", "coins"
         ]
 
 
 # --------------------------
 # ETIQUETAS
 # --------------------------
-class EtiquetaSerializer(serializers.ModelSerializer):
+class TagSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Etiqueta
+        model = Tag
         fields = "__all__"
 
 
 # --------------------------
 # HABILIDAD
 # --------------------------
-class HabilidadSerializer(serializers.ModelSerializer):
-    etiquetas = EtiquetaSerializer(many=True, read_only=True)
-    etiquetas_ids = serializers.PrimaryKeyRelatedField(
-        many=True,
-        queryset=Etiqueta.objects.all(),
-        write_only=True
-    )
-
-    class Meta:
-        model = Habilidad
-        fields = ["id", "nombre", "descripcion", "etiquetas", "etiquetas_ids"]
-
-    def create(self, validated_data):
-        etiquetas_ids = validated_data.pop("etiquetas_ids", [])
-        habilidad = Habilidad.objects.create(**validated_data)
-        habilidad.etiquetas.set(etiquetas_ids)
-        return habilidad
-
-    def update(self, instance, validated_data):
-        etiquetas_ids = validated_data.pop("etiquetas_ids", None)
-        habilidad = super().update(instance, validated_data)
-
-        if etiquetas_ids is not None:
-            habilidad.etiquetas.set(etiquetas_ids)
-
-        return habilidad
+class SkillSerializer(serializers.ModelSerializer):
+   class Meta:
+       model = Skill
+       fields = "__all__"
 
 
 # --------------------------
 # USUARIO - HABILIDAD (pivot)
 # --------------------------
-class UsuarioHabilidadSerializer(serializers.ModelSerializer):
+class UserSkillSerializer(serializers.ModelSerializer):
     class Meta:
-        model = UsuarioHabilidad
+        model = UserSkill
         fields = "__all__"
 
 
 # --------------------------
 # SERVICIOS
 # --------------------------
-class ServicioSerializer(serializers.ModelSerializer):
+class ServiceSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Servicio
+        model = Service
         fields = "__all__"
 
 
 # --------------------------
 # INTERCAMBIOS
 # --------------------------
-class IntercambioSerializer(serializers.ModelSerializer):
+class TradeSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Intercambio
+        model = Trade
         fields = "__all__"
 
 
 # --------------------------
 # TRANSACCIONES
 # --------------------------
-class TransaccionSerializer(serializers.ModelSerializer):
+class TransactionSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Transaccion
+        model = Transaction
         fields = "__all__"
 
 
 # --------------------------
 # MENSAJES
 # --------------------------
-class MensajeSerializer(serializers.ModelSerializer):
+class MessageSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Mensaje
+        model = Message
         fields = "__all__"

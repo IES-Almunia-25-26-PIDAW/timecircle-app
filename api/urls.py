@@ -4,14 +4,14 @@ from rest_framework.routers import DefaultRouter
 from .views import *
 
 router = DefaultRouter()
-router.register("usuarios", UsuarioViewSet, basename="usuarios")
-router.register("etiquetas", EtiquetaViewSet, basename="etiquetas")
-router.register("habilidades", HabilidadViewSet, basename="habilidades")
-router.register("usuario-habilidades", UsuarioHabilidadViewSet, basename="usuario-habilidades")
-router.register("servicios", ServicioViewSet, basename="servicios")
-router.register("intercambios", IntercambioViewSet, basename="intercambios")
-router.register("transacciones", TransaccionViewSet, basename="transacciones")
-router.register("mensajes", MensajeViewSet, basename="mensajes")
+router.register("users", UserViewSet, basename="users")
+router.register("tags", TagViewSet, basename="tags")
+router.register("skills", SkillViewSet, basename="skills")
+router.register("user-skills", UserSkillViewSet, basename="user-skills")
+router.register("services", ServiceViewSet, basename="services")
+router.register("trade", TradeViewSet, basename="trade")
+router.register("transactions", TransactionViewSet, basename="transactions")
+router.register("message", MessageViewSet, basename="message")
 
 urlpatterns = [
     path("", include(router.urls)),

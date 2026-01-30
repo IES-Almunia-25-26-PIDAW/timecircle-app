@@ -4,9 +4,9 @@ from drf_spectacular.utils import extend_schema_view, extend_schema
 
 from .models import *
 from .serializers import (
-    UsuarioSerializer, EtiquetaSerializer, HabilidadSerializer,
-    UsuarioHabilidadSerializer, ServicioSerializer, IntercambioSerializer,
-    TransaccionSerializer, MensajeSerializer
+    UserSerializer, TagSerializer, SkillSerializer,
+    UserSkillSerializer, ServiceSerializer, TradeSerializer,
+    TransactionSerializer, MessageSerializer
 )
 
 
@@ -23,88 +23,88 @@ def documented_viewset(cls):
 
 
 # ----------------------
-# USUARIO
+# User
 # ----------------------
 @documented_viewset
-class UsuarioViewSet(ModelViewSet):
-    basename = "usuarios"
-    queryset = Usuario.objects.all()
-    serializer_class = UsuarioSerializer
+class UserViewSet(ModelViewSet):
+    basename = "Users"
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
     permission_classes = [IsAuthenticated]
 
 
 # ----------------------
-# ETIQUETA
+# Tag
 # ----------------------
 @documented_viewset
-class EtiquetaViewSet(ModelViewSet):
-    basename = "etiquetas"
-    queryset = Etiqueta.objects.all()
-    serializer_class = EtiquetaSerializer
+class TagViewSet(ModelViewSet):
+    basename = "Tags"
+    queryset = Tag.objects.all()
+    serializer_class = TagSerializer
     permission_classes = [IsAuthenticated]
 
 
 # ----------------------
-# HABILIDAD
+# Skill
 # ----------------------
 @documented_viewset
-class HabilidadViewSet(ModelViewSet):
-    basename = "habilidades"
-    queryset = Habilidad.objects.all()
-    serializer_class = HabilidadSerializer
+class SkillViewSet(ModelViewSet):
+    basename = "Skills"
+    queryset = Skill.objects.all()
+    serializer_class = SkillSerializer
     permission_classes = [IsAuthenticated]
 
 
 # ----------------------
-# USUARIO - HABILIDAD
+# User - Skill
 # ----------------------
 @documented_viewset
-class UsuarioHabilidadViewSet(ModelViewSet):
-    basename = "usuario-habilidades"
-    queryset = UsuarioHabilidad.objects.all()
-    serializer_class = UsuarioHabilidadSerializer
+class UserSkillViewSet(ModelViewSet):
+    basename = "User-Skills"
+    queryset = UserSkill.objects.all()
+    serializer_class = UserSkillSerializer
     permission_classes = [IsAuthenticated]
 
 
 # ----------------------
-# SERVICIO
+# Service
 # ----------------------
 @documented_viewset
-class ServicioViewSet(ModelViewSet):
-    basename = "servicios"
-    queryset = Servicio.objects.all()
-    serializer_class = ServicioSerializer
+class ServiceViewSet(ModelViewSet):
+    basename = "Services"
+    queryset = Service.objects.all()
+    serializer_class = ServiceSerializer
     permission_classes = [IsAuthenticated]
 
 
 # ----------------------
-# INTERCAMBIO
+# Trade
 # ----------------------
 @documented_viewset
-class IntercambioViewSet(ModelViewSet):
-    basename = "intercambios"
-    queryset = Intercambio.objects.all()
-    serializer_class = IntercambioSerializer
+class TradeViewSet(ModelViewSet):
+    basename = "Trades"
+    queryset = Trade.objects.all()
+    serializer_class = TradeSerializer
     permission_classes = [IsAuthenticated]
 
 
 # ----------------------
-# TRANSACCION
+# Transaction
 # ----------------------
 @documented_viewset
-class TransaccionViewSet(ModelViewSet):
-    basename = "transacciones"
-    queryset = Transaccion.objects.all()
-    serializer_class = TransaccionSerializer
+class TransactionViewSet(ModelViewSet):
+    basename = "Transactions"
+    queryset = Transaction.objects.all()
+    serializer_class = TransactionSerializer
     permission_classes = [IsAuthenticated]
 
 
 # ----------------------
-# MENSAJE
+# Message
 # ----------------------
 @documented_viewset
-class MensajeViewSet(ModelViewSet):
-    basename = "mensajes"
-    queryset = Mensaje.objects.all()
-    serializer_class = MensajeSerializer
+class MessageViewSet(ModelViewSet):
+    basename = "Messages"
+    queryset = Message.objects.all()
+    serializer_class = MessageSerializer
     permission_classes = [IsAuthenticated]
