@@ -1,116 +1,124 @@
 from django.db import models
-from django.db.models import Q
+from django.db.models import Q, F
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth.models import AbstractUser
 
-class Usuario(AbstractUser):
-  SEXO_CHOICES = [
-    ('M', _("Masculino")),
-    ('F', _("Femenino")),
-    ('O', _("Otro"))
-  ]
+class User(AbstractUser):
+    class Gender(models.TextChoices):
+        MALE = 'M', _("Male")
+        FEMALE = 'F', _("Female")
+        OTHER = 'O', _("Other")
 
-  class Meta:
-    db_table = "usuario"
+    dni = models.CharField(max_length=20, unique=True)
+    birth_date = models.DateField(null=True, blank=True)
+    gender = models.CharField(
+        max_length=1,
+        choices=Gender.choices,
+        default=Gender.OTHER
+    )
+    coins = models.IntegerField(default=0)
 
-  dni = models.CharField(max_length=9,unique=True)
-  fecha_nacimiento = models.DateField(auto_now_add=True,null=False,blank=True)
-  sexo = models.CharField(choices=SEXO_CHOICES, db_default=('O', _('Otro')))
+    class Meta:
+        db_table = "user_account" # 'user' is a reserved word in Postgres
 
-class Etiqueta(models.Model):
-  class Meta:
-    db_table = "etiqueta"
+class Tag(models.Model):
+    name = models.CharField(max_length=50)
+    description = models.TextField(max_length=200, default="No description")
 
-  id = models.IntegerField(auto_created=True,primary_key=True)
-  nombre = models.TextField(max_length=50)
-  descripcion = models.TextField(max_length=200,default="Sin descripción")
+    class Meta:
+        db_table = "tag"
 
-class Habilidad(models.Model):
-  class Meta:
-    db_table = "habilidad"
+    def __str__(self):
+        return self.name
 
-  id = models.IntegerField(auto_created=True,primary_key=True)
-  nombre = models.TextField(max_length=30,unique=True)
-  descripcion = models.TextField(max_length=200,default="Sin descripción")
-  etiquetas = models.ManyToManyField(Etiqueta)
+class Skill(models.Model):
+    name = models.CharField(max_length=30, unique=True)
+    description = models.TextField(max_length=200, default="No description")
+    tags = models.ManyToManyField(Tag, related_name="skills")
 
+    class Meta:
+        db_table = "skill"
 
-class UsuarioHabilidad(models.Model):
-  class Meta:
-    db_table = "usuario_habilidad"
-    unique_together = ("usuario","habilidad")
+class UserSkill(models.Model):
+    class Level(models.IntegerChoices):
+        BASIC = 0, _('Basic')
+        INTERMEDIATE = 1, _('Intermediate')
+        EXPERT = 2, _('Expert')
 
-  class Nivel(models.IntegerChoices):
-    BASICO = 0, _('Básico')
-    INTERMEDIO = 1, _('Intermedio')
-    EXPERTO = 2, _('Experto')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="user_skills")
+    skill = models.ForeignKey(Skill, on_delete=models.CASCADE)
+    level = models.IntegerField(choices=Level.choices, default=Level.BASIC)
+    years_experience = models.PositiveIntegerField(default=0)
 
-  usuario = models.ForeignKey(Usuario, on_delete=models.CASCADE, related_name="habilidades")
-  habilidad = models.ForeignKey(Habilidad, on_delete=models.CASCADE)
-  nivel = models.CharField(
-      max_length=20,
-      choices=Nivel.choices,
-      blank=True,
-      default=Nivel.BASICO
-  )
-  anios_experiencia = models.PositiveIntegerField(default=0)
+    class Meta:
+        db_table = "user_skill"
+        unique_together = ("user", "skill")
 
-class Servicio(models.Model):
-  class Meta:
-    db_table = "servicio"
+class Service(models.Model):
+    title = models.CharField(max_length=70)
+    description = models.TextField(max_length=300, blank=True)
+    skill = models.ForeignKey(Skill, on_delete=models.CASCADE)
+    provider = models.ForeignKey(User, on_delete=models.CASCADE, related_name="offered_services")
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)
 
-  id = models.IntegerField(auto_created=True,primary_key=True)
-  titulo = models.TextField(max_length=70)
-  descripcion = models.TextField(max_length=300,blank=True)
-  habilidad = models.ForeignKey(Habilidad, on_delete=models.CASCADE)
-  solicitante = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING)
-  fecha_creacion = models.DateTimeField(auto_now=True)
-  activo = models.BooleanField(default=True)
+    class Meta:
+        db_table = "service"
 
-class Intercambio(models.Model):
-  class Meta:
-    db_table = "intercambio"
-    constraints = [
-      models.CheckConstraint(
-        # Comprueba si la fecha de fin es mayor que fecha de inicio
-        check=Q(fecha_final=models.F('fecha_inicio')),
-        name='fechas_validas'
-      )
-    ]
-  class Estado(models.IntegerChoices):
-    SOLICITADO = 0, _('Solicitado')
-    EN_NEGOCIACION = 1, _('En negociación')
-    ACEPTADO = 2, _('Aceptado')
-    CANCELADO = 3, _('Cancelado')
+class Trade(models.Model):
+    class Status(models.IntegerChoices):
+        REQUESTED = 0, _('Requested')
+        NEGOTIATING = 1, _('Negotiating')
+        ACCEPTED = 2, _('Accepted')
+        CANCELED = 3, _('Canceled')
+        COMPLETED = 4, _('Completed')
 
-  id = models.IntegerField(auto_created=True,primary_key=True)
-  solicitante = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING, related_name="solicitante")
-  proveedor = models.ForeignKey(Usuario, on_delete=models.CASCADE, related_name="proveedor")
-  torrijas = models.PositiveIntegerField() # horas
-  fecha_inicio = models.DateTimeField(auto_now=True)
-  fecha_final = models.DateTimeField()
-  estado = models.CharField(
-    choices=Estado.choices,
-    blank=True,
-    default=Estado.SOLICITADO
-  )
+    client = models.ForeignKey(User, on_delete=models.PROTECT, related_name="trades_as_client")
+    service = models.ForeignKey(Service, on_delete=models.PROTECT, related_name="trades")
+    start_date = models.DateTimeField()
+    end_date = models.DateTimeField()
+    status = models.IntegerField(choices=Status.choices, default=Status.REQUESTED)
 
-class Transaccion(models.Model):
-  class Meta:
-    db_table = "transaccion"
+    class Meta:
+        db_table = "trade"
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(end_date__gt=F('start_date')),
+                name='valid_trade_dates'
+            )
+        ]
 
-  id = models.IntegerField(auto_created=True,primary_key=True)
-  usuario = models.ForeignKey(Usuario, on_delete=models.CASCADE)
-  intercambio = models.ForeignKey(Intercambio, on_delete=models.DO_NOTHING)
-  torrijas = models.IntegerField()
-  fecha = models.DateTimeField(auto_now=True)
+class Transaction(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="transactions")
+    trade = models.ForeignKey(Trade, on_delete=models.CASCADE)
+    amount = models.IntegerField()
+    date_issued = models.DateTimeField(auto_now_add=True)
 
-class Mensaje(models.Model):
-  class Meta:
-    db_table = "mensaje"
+    class Meta:
+        db_table = "transaction"
 
-  id = models.IntegerField(auto_created=True,primary_key=True)
-  intercambio = models.ForeignKey(Intercambio, on_delete=models.CASCADE)
-  remitente = models.ForeignKey(Usuario, on_delete=models.DO_NOTHING)
-  texto = models.TextField(max_length=500)
-  fecha = models.DateTimeField(auto_now=True)
+class Message(models.Model):
+    trade = models.ForeignKey(Trade, on_delete=models.CASCADE, related_name="messages")
+    sender = models.ForeignKey(User, on_delete=models.CASCADE)
+    content = models.TextField(max_length=500)
+    sent_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "message"
+
+class Rating(models.Model):
+    trade = models.ForeignKey(Trade, on_delete=models.CASCADE, related_name="ratings")
+    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name="given_ratings")
+    target = models.ForeignKey(User, on_delete=models.CASCADE, related_name="received_ratings")
+    subject = models.CharField(max_length=100)
+    comment = models.TextField(max_length=2000)
+    grade = models.SmallIntegerField()
+
+    class Meta:
+        db_table = "rating"
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(grade__range=(1, 5)),
+                name='grade_range_1_to_5'
+            )
+        ]
