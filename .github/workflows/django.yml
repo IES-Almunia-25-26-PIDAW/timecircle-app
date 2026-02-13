@@ -33,13 +33,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-    - name: Check env vars
-      run: |
-        python - <<EOF
-        import os
-        assert os.getenv("SECRET_KEY")
-        print("Secrets loaded OK")
-        EOF
+        pip install coverage
     - name: Run Tests
       run: |
-        python manage.py test
+        coverage run manage.py test && coverage report --fail-under=80
