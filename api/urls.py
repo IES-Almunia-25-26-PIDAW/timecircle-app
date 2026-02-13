@@ -9,9 +9,9 @@ router.register("tags", TagViewSet, basename="tags")
 router.register("skills", SkillViewSet, basename="skills")
 router.register("user-skills", UserSkillViewSet, basename="user-skills")
 router.register("services", ServiceViewSet, basename="services")
-router.register("trade", TradeViewSet, basename="trade")
+router.register("trades", TradeViewSet, basename="trades")
 router.register("transactions", TransactionViewSet, basename="transactions")
-router.register("message", MessageViewSet, basename="message")
+router.register("messages", MessageViewSet, basename="message")
 
 urlpatterns = [
     path("", include(router.urls)),

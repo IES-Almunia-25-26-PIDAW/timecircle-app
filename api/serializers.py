@@ -59,6 +59,13 @@ class TradeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Trade
         fields = "__all__"
+    
+    def validate(self, data):
+        if data["end_date"] <= data["start_date"]:
+            raise serializers.ValidationError(
+                {"end_date": "End date must be after start date."}
+            )
+        return data
 
 
 # --------------------------
