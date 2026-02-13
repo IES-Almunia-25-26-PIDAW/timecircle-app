@@ -12,6 +12,7 @@ router.register("services", ServiceViewSet, basename="services")
 router.register("trades", TradeViewSet, basename="trades")
 router.register("transactions", TransactionViewSet, basename="transactions")
 router.register("messages", MessageViewSet, basename="message")
+router.register("ratings", RatingViewSet, basename="ratings")
 
 urlpatterns = [
     path("", include(router.urls)),

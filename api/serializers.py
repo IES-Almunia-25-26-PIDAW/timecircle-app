@@ -61,11 +61,14 @@ class TradeSerializer(serializers.ModelSerializer):
         fields = "__all__"
     
     def validate(self, data):
+        if not data["service"].is_active:
+            raise serializers.ValidationError("Service is not active.")
+
         if data["end_date"] <= data["start_date"]:
-            raise serializers.ValidationError(
-                {"end_date": "End date must be after start date."}
-            )
+            raise serializers.ValidationError("Invalid dates.")
+
         return data
+
 
 
 # --------------------------
@@ -84,3 +87,21 @@ class MessageSerializer(serializers.ModelSerializer):
     class Meta:
         model = Message
         fields = "__all__"
+    
+# –-------------------------
+# RATINGS
+# --------------------------
+class RatingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Rating
+        fields = "__all__"
+        
+    def validate(self, data):
+        if data["author"] == data["target"]:
+            raise serializers.ValidationError("You cannot rate yourself.")
+        
+        if data["trade"].status != Trade.Status.COMPLETED:
+            raise serializers.ValidationError("Trade must be completed.")
+        
+        return data
+

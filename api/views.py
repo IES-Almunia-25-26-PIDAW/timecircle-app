@@ -6,7 +6,7 @@ from .models import *
 from .serializers import (
     UserSerializer, TagSerializer, SkillSerializer,
     UserSkillSerializer, ServiceSerializer, TradeSerializer,
-    TransactionSerializer, MessageSerializer
+    TransactionSerializer, MessageSerializer, RatingSerializer
 )
 
 
@@ -107,4 +107,14 @@ class MessageViewSet(ModelViewSet):
     basename = "Messages"
     queryset = Message.objects.all()
     serializer_class = MessageSerializer
+    permission_classes = [IsAuthenticated]
+    
+# ----------------------
+# Rating
+# ----------------------
+@documented_viewset
+class RatingViewSet(ModelViewSet):
+    basename = "Ratings"
+    queryset = Rating.objects.all()
+    serializer_class = RatingSerializer
     permission_classes = [IsAuthenticated]

@@ -102,6 +102,29 @@ class ModelsTestCase(TestCase):
                 end_date=end
             )
 
+    def test_trade_with_inactive_service(self):
+        self.service.is_active = False
+        self.service.save()
+
+        url = reverse("trade-list")
+
+        start = timezone.now()
+        end = start + timedelta(hours=2)
+
+        data = {
+            "client": self.user2.id,
+            "service": self.service.id,
+            "start_date": start,
+            "end_date": end
+        }
+
+        self.client.force_authenticate(user=self.user2)
+
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, 400)
+
+
     def test_transaction_creation(self):
         start = timezone.now()
         end = start + timedelta(hours=1)
@@ -183,10 +206,47 @@ class ModelsTestCase(TestCase):
                 comment="Muy mal",
                 grade=6  # fuera de rango
             )
+            
+    def test_cannot_rate_yourself(self):
+        trade = self.create_completed_trade()
+
+        data = {
+            "trade": trade.id,
+            "author": self.user1.id,
+            "target": self.user1.id,
+            "subject": "Test",
+            "comment": "Test",
+            "grade": 5
+        }
+
+        url = reverse("ratings-list")
+
+        self.client.force_authenticate(user=self.user1)
+
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_rating_only_completed_trade(self):
+        trade = self.create_requested_trade()
+
+        data = {
+            "trade": trade.id,
+            "author": self.user1.id,
+            "target": self.user2.id,
+            "subject": "Test",
+            "comment": "Test",
+            "grade": 5
+        }
+
+        response = self.client.post(reverse("ratings-list"), data)
+
+        self.assertEqual(response.status_code, 400)
+
 
 # Serializers
 
-class UserSerializerTest(TestCase):
+class SerializersTestCase(TestCase):
 
     def test_user_serialization(self):
         user = User.objects.create_user(
