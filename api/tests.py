@@ -12,7 +12,7 @@ from datetime import timedelta
 
 # Models
 
-class ModelsTestCase(TestCase):
+class ModelsTestCase(APITestCase):
 
     def setUp(self):
         # Usuarios
@@ -48,18 +48,37 @@ class ModelsTestCase(TestCase):
             skill=self.skill,
             provider=self.user1
         )
-        
+
+    def create_completed_trade(self):
+        trade = Trade.objects.create(
+            client=self.user2,
+            service=self.service,
+            start_date=timezone.now(),
+            end_date=timezone.now() + timedelta(hours=1),
+            status=Trade.Status.COMPLETED
+        )
+        return trade
+
+    def create_requested_trade(self):
+        return Trade.objects.create(
+            client=self.user2,
+            service=self.service,
+            start_date=timezone.now(),
+            end_date=timezone.now() + timedelta(hours=1),
+            status=Trade.Status.REQUESTED
+        )
+
     def test_user_creation(self):
         self.assertEqual(self.user1.coins, 0)
         self.assertTrue(self.user1.is_active)
-    
+
     def test_tag_creation(self):
         self.assertEqual(self.tag.name, "Programación")
-    
+
     def test_skill_unique_name(self):
         with self.assertRaises(IntegrityError):
             Skill.objects.create(name="Python")
-            
+
     def test_user_skill_unique_together(self):
         UserSkill.objects.create(
             user=self.user1,
@@ -72,11 +91,11 @@ class ModelsTestCase(TestCase):
                 user=self.user1,
                 skill=self.skill
             )
-            
+
     def test_service_creation(self):
         self.assertTrue(self.service.is_active)
         self.assertEqual(self.service.provider, self.user1)
-    
+
     def test_trade_valid_dates(self):
         start = timezone.now()
         end = start + timedelta(hours=2)
@@ -106,7 +125,7 @@ class ModelsTestCase(TestCase):
         self.service.is_active = False
         self.service.save()
 
-        url = reverse("trade-list")
+        url = reverse("trades-list")
 
         start = timezone.now()
         end = start + timedelta(hours=2)
@@ -206,7 +225,7 @@ class ModelsTestCase(TestCase):
                 comment="Muy mal",
                 grade=6  # fuera de rango
             )
-            
+
     def test_cannot_rate_yourself(self):
         trade = self.create_completed_trade()
 
@@ -239,14 +258,25 @@ class ModelsTestCase(TestCase):
             "grade": 5
         }
 
+        self.client.force_authenticate(user=self.user1)
+
         response = self.client.post(reverse("ratings-list"), data)
 
         self.assertEqual(response.status_code, 400)
 
+    def test_valid_status_transition(self):
+        trade = self.create_requested_trade()
+
+        trade.status = Trade.Status.ACCEPTED
+        trade.save()
+
+        self.assertEqual(trade.status, Trade.Status.ACCEPTED)
+
+
 
 # Serializers
 
-class SerializersTestCase(TestCase):
+class SerializersTestCase(APITestCase):
 
     def test_user_serialization(self):
         user = User.objects.create_user(
@@ -261,10 +291,10 @@ class SerializersTestCase(TestCase):
         self.assertEqual(data["username"], "juan")
         self.assertEqual(data["dni"], "11111111A")
         self.assertEqual(data["coins"], 0)
-        
+
 # API Test
 
-class ServiceAPITest(APITestCase):
+class ServiceCRUDTest(APITestCase):
 
     def setUp(self):
         self.user = User.objects.create_user(
@@ -292,8 +322,67 @@ class ServiceAPITest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(Service.objects.count(), 1)
 
+    def test_list_services(self):
+        Service.objects.create(
+            title="Test",
+            skill=self.skill,
+            provider=self.user
+        )
+
+        response = self.client.get(reverse("services-list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+
+    def test_retrieve_service(self):
+        service = Service.objects.create(
+            title="Test",
+            skill=self.skill,
+            provider=self.user
+        )
+
+        response = self.client.get(
+            reverse("services-detail", args=[service.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_update_service(self):
+        service = Service.objects.create(
+            title="Old",
+            skill=self.skill,
+            provider=self.user
+        )
+
+        response = self.client.put(
+            reverse("services-detail", args=[service.id]),
+            {
+                "title": "New",
+                "description": "",
+                "skill": self.skill.id,
+                "provider": self.user.id,
+                "is_active": True
+            }
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_delete_service(self):
+        service = Service.objects.create(
+            title="Delete",
+            skill=self.skill,
+            provider=self.user
+        )
+
+        response = self.client.delete(
+            reverse("services-detail", args=[service.id])
+        )
+
+        self.assertEqual(response.status_code, 204)
+
+
 class TradeAPITest(APITestCase):
-    
+
     def setUp(self):
         self.user = User.objects.create_user(
             username="provider",
@@ -310,7 +399,7 @@ class TradeAPITest(APITestCase):
         )
 
         self.client.force_authenticate(user=self.user)
-    
+
     def test_create_trade_invalid_dates(self):
         url = reverse("trades-list")
 
