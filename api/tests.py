@@ -75,6 +75,10 @@ class ModelsTestCase(APITestCase):
     def test_tag_creation(self):
         self.assertEqual(self.tag.name, "Programación")
 
+    def test_skill_creation(self):
+        self.assertTrue(self.skill.name)
+        self.assertTrue(self.skill.tags.contains(self.tag))
+
     def test_skill_unique_name(self):
         with self.assertRaises(IntegrityError):
             Skill.objects.create(name="Python")
