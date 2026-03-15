@@ -1,0 +1,11 @@
+# TimeCircle — Backend Dependencies
+# Instalar con: pip install -r requirements.txt
+
+Django==5.2.8
+djangorestframework==3.15.2
+djangorestframework-simplejwt==5.3.1
+drf-spectacular==0.27.2
+django-cors-headers==4.4.0
+psycopg2-binary==2.9.9
+python-dotenv==1.0.1
+Pillow==10.4.0              # Para ImageField si se necesita en el futuro
