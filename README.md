@@ -7,6 +7,35 @@
 
 #### Proyecto TFG DAM · Aplicación Web Full-Stack
 
+# Índice
+  - [📌 Descripción del Proyecto](#📌-Descripción-del-Proyecto)
+  - [🎯 Objetivo](#🎯-Objetivo)
+  - [🚀 Características principales](#🚀-Características-principales)
+  - [🛠️ Tecnologías utilizadas](#🛠️-Tecnologías-utilizadas)
+    - [Frontend](#Frontend)
+    - [Backend](#Backend)
+    - [Base de datos](#Base-de-datos)
+    - [Autenticación](#Autenticación)
+    - [Documentación API](#Documentación-API)
+    - [Despliegue](#Despliegue)
+    - [Versionado](#Versionado)
+    - [CI/CD](#CICD)
+- [Variables de entorno](#Variables-de-entorno)
+- [⚙️ Instalación y ejecución](#⚙️-Instalación-y-ejecución)
+  - [Docker](#Docker)
+  - [Backend](#Backend)
+    - [1️⃣ Clonar el repositorio](#1️⃣-Clonar-el-repositorio)
+    - [2️⃣ Configurar entorno virtual](#2️⃣-Configurar-entorno-virtual)
+    - [3️⃣ Instalar dependencias](#3️⃣-Instalar-dependencias)
+    - [4️⃣ Configurar .env](#4️⃣-Configurar-env)
+    - [5️⃣ Aplicar migraciones](#5️⃣-Aplicar-migraciones)
+    - [6️⃣ Crear datos de prueba](#6️⃣-Crear-datos-de-prueba)
+    - [7️⃣ Ejecutar servidor](#7️⃣-Ejecutar-servidor)
+  - [Frontend](#Frontend)
+    - [1️⃣ Instalar dependencias](#1️⃣-Instalar-dependencias)
+    - [2️⃣ Ejecutar servidor](#2️⃣-Ejecutar-servidor)
+- [🤝 Autor](#🤝-Autor)
+
 ## 📌 Descripción del Proyecto
 
 TimeCircle es una aplicación que reúne a los vecinos de una localidad para intercambiar
