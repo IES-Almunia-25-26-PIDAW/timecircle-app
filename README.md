@@ -79,7 +79,27 @@ El objetivo del proyecto es facilitar la colaboración entre usuarios, mejorar l
 > - Integración con redes sociales.
 > - Aplicación móvil nativa (solo version web responsive).
 
+# Variables de entorno
+
+ - DEBUG (Bool): Ejecuta el servidor backend en modo debug.
+ - ALLOWED_HOSTS (String[]): Lista de direcciones red que tienen acceso al servidor.
+ - DB_NAME (String): Base de datos a conectarse al servidor.
+ - DB_USER (String): Usuario de la base de datos a conectarse al servidor.
+ - DB_PASSWORD (String): Contraseña de la base de datos a conectarse al servidor.
+ - DB_HOST (String): Dirección de red de la base de datos.
+ - DB_PORT (String): Puerto a usar para establecer la conexión hacia la base de datos.
+ - SECRET_KEY (String): Llave secreta mayor de 32 caracteres para JWT.
+
 # ⚙️ Instalación y ejecución
+
+## Docker
+
+Simplemente utilice las variables de entorno disponibles para crear un .env en la raíz del proyecto.
+Cuando este todo listo, ejecute el composer en la raíz del proyecto.
+
+```bash
+docker compose up
+```
 
 ## Backend
 
@@ -101,33 +121,40 @@ source venv/bin/activate     # Linux / Mac
 ### 3️⃣ Instalar dependencias
 
 ```bash
-pip install -r requirements.txt
+pip install -r backend/requirements.txt
 ```
+### 4️⃣ Configurar .env
 
-### 4️⃣ Aplicar migraciones
+Crearás un .env en la raíz del proyecto con los datos por ejemplo del .env.example.
+
+### 5️⃣ Aplicar migraciones
 
 ```bash
-python manage.py migrate
+python backend/manage.py migrate
 ```
 
-### 5️⃣ Crear superusuario
+### 6️⃣ Crear datos de prueba
 
 ```bash
-python manage.py createsuperuser
+python backend/manage.py seed_categories
+python backend/manage.py seed_demo_data
 ```
 
-### 6️⃣ Ejecutar servidor
+### 7️⃣ Ejecutar servidor
 
 ```bash
-python manage.py runserver
+python backend/manage.py runserver
 ```
 
 > [!TIP]
 > Puedes ejecutar los tests con este comando:
 >
 > ```bash
-> python manage.py test
+> python backend/manage.py test
 > ```
+
+> [!WARNING]
+> Si tienes un SGBD local, se recomienda utilizar Docker para una mayor portabilidad, aislamiento, escalabilidad y consistencia a la hora de desarrollar. Véase el apartado [Docker](#Docker).
 
 ## Frontend
 
