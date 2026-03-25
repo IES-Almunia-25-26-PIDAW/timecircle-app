@@ -59,6 +59,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'api.middleware.ResponseTimeMiddleware'
 ]
 
 ROOT_URLCONF = 'backend.urls'
@@ -206,4 +207,7 @@ SPECTACULAR_SETTINGS = {
         {'name': 'Reviews',       'description': 'Valoraciones tras intercambios'},
         {'name': 'Admin',         'description': 'Panel de administración (solo staff)'},
     ],
+    'SWAGGER_UI_SETTINGS': {
+        'displayRequestDuration': True,
+    }
 }
