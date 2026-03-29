@@ -21,9 +21,19 @@ load_dotenv(BASE_DIR / ".env", override=True)
 # ── Seguridad ─────────────────────────────────────────────
 SECRET_KEY              = os.getenv('SECRET_KEY', 'django-insecure-CHANGE-ME-in-production')
 DEBUG                   = os.getenv('DEBUG', 'True') == 'True'
-# SESSION_COOKIE_SECURE   = True
-# SECURE_SSL_REDIRECT     = True
-# CSRF_COOKIE_SECURE      = True
+
+# --- Cookies seguras ---
+SESSION_COOKIE_SECURE = True       # Cookie de sesión solo por HTTPS
+CSRF_COOKIE_SECURE    = True       # Cookie CSRF solo por HTTPS
+SESSION_COOKIE_HTTPONLY = True     # JS no puede leer la cookie de sesión
+CSRF_COOKIE_HTTPONLY    = False    # El frontend necesita leer el CSRF token
+
+# --- Protección adicional ---
+SECURE_SSL_REDIRECT         = True   # Redirige HTTP → HTTPS automáticamente
+SECURE_HSTS_SECONDS         = 31536000  # Fuerza HTTPS durante 1 año (HSTS)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_CONTENT_TYPE_NOSNIFF = True   # Evita que el navegador adivine el MIME type
+X_FRAME_OPTIONS             = "DENY" # Previene clickjacking en iframes
 
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',')
 
@@ -164,11 +174,14 @@ SIMPLE_JWT = {
 # ── CORS ──────────────────────────────────────────────────
 # En producción, reemplaza con los dominios reales del frontend
 CORS_ALLOWED_ORIGINS = [
-    'http://localhost:3000',   # React (CRA / Vite)
-    'http://localhost:5173',   # Vite
-    'http://127.0.0.1:3000',
-    'http://127.0.0.1:5173',
+    'https://frontend-jet-delta-45.vercel.app/', # Producción
 ]
+
+# Patrones dinámicos (previews de Vercel)
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://timecircle-[a-z0-9]+-xarzys-projects\.vercel\.app$",
+]
+
 CORS_ALLOW_CREDENTIALS = True
 
 # ── drf-spectacular (Swagger / OpenAPI) ───────────────────
