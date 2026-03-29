@@ -19,10 +19,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env", override=True)
 
 # ── Seguridad ─────────────────────────────────────────────
-SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-CHANGE-ME-in-production')
-DEBUG      = os.getenv('DEBUG', 'True') == 'True'
+SECRET_KEY              = os.getenv('SECRET_KEY', 'django-insecure-CHANGE-ME-in-production')
+DEBUG                   = os.getenv('DEBUG', 'True') == 'True'
+SESSION_COOKIE_SECURE   = True
+# SECURE_SSL_REDIRECT     = True
+# CSRF_COOKIE_SECURE      = True
 
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost', 'backend', '172.20.0.1']
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',')
 
 # ── Redis ─────────────────────────────────────────────────
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
@@ -46,6 +49,7 @@ INSTALLED_APPS = [
 
     # Proyecto
     'api',
+    'backend'
 ]
 
 # ── Middleware ────────────────────────────────────────────
@@ -110,6 +114,7 @@ USE_TZ        = True
 # ── Archivos estáticos y media ────────────────────────────
 STATIC_URL  = 'static/'
 STATIC_ROOT = BASE_DIR / 'static'
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 MEDIA_URL  = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
