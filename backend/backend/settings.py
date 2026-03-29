@@ -21,7 +21,7 @@ load_dotenv(BASE_DIR / ".env", override=True)
 # ── Seguridad ─────────────────────────────────────────────
 SECRET_KEY              = os.getenv('SECRET_KEY', 'django-insecure-CHANGE-ME-in-production')
 DEBUG                   = os.getenv('DEBUG', 'True') == 'True'
-SESSION_COOKIE_SECURE   = True
+# SESSION_COOKIE_SECURE   = True
 # SECURE_SSL_REDIRECT     = True
 # CSRF_COOKIE_SECURE      = True
 
