@@ -7,7 +7,7 @@ import { ThemeToggle } from '../components/ThemeToggle';
 export const Login: React.FC = () => {
   const { login } = useApp();
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState('');
@@ -17,24 +17,22 @@ export const Login: React.FC = () => {
     e.preventDefault();
     setError('');
     setLoading(true);
-    await new Promise(r => setTimeout(r, 400));
-    const ok = login(email, password);
+    const ok = await login(username, password);
     setLoading(false);
     if (ok) {
       navigate('/dashboard');
     } else {
-      setError('Email o contraseña incorrectos. Prueba con: ana@timecircle.es / 123456');
+      setError('Usuario o contraseña incorrectos.');
     }
   };
 
-  const quickLogin = (userEmail: string, userPassword: string) => {
-    setEmail(userEmail);
-    setPassword(userPassword);
+  const quickLogin = (u: string, p: string) => {
+    setUsername(u);
+    setPassword(p);
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-teal-50 via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 flex items-center justify-center p-4 transition-colors duration-300">
-      {/* Theme toggle in corner */}
       <div className="fixed top-4 right-4">
         <ThemeToggle />
       </div>
@@ -65,13 +63,13 @@ export const Login: React.FC = () => {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-slate-700 dark:text-slate-300 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>
-                Correo electrónico
+                Nombre de usuario
               </label>
               <input
-                type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                placeholder="tu@correo.es"
+                type="text"
+                value={username}
+                onChange={e => setUsername(e.target.value)}
+                placeholder="tu_usuario"
                 required
                 className="w-full px-4 py-2.5 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 transition-all"
               />
@@ -121,19 +119,19 @@ export const Login: React.FC = () => {
           <p className="text-slate-500 dark:text-slate-400 mb-3 text-center" style={{ fontSize: '0.8rem' }}>Acceso rápido para explorar</p>
           <div className="grid grid-cols-2 gap-2">
             {[
-              { name: 'Ana (vecina)', email: 'ana@timecircle.es', pass: '123456' },
-              { name: 'Carlos (vecino)', email: 'carlos@timecircle.es', pass: '123456' },
-              { name: 'Laura (vecina)', email: 'laura@timecircle.es', pass: '123456' },
-              { name: '⚙️ Administrador', email: 'admin@timecircle.es', pass: 'admin123' },
+              { name: 'María García', user: 'maria_garcia', pass: 'Demo1234!' },
+              { name: 'Carlos López', user: 'carlos_lopez', pass: 'Demo1234!' },
+              { name: 'Ana Martínez', user: 'ana_martinez', pass: 'Demo1234!' },
+              { name: '⚙️ Administrador', user: 'admin', pass: 'Admin1234!' },
             ].map(u => (
               <button
-                key={u.email}
-                onClick={() => quickLogin(u.email, u.pass)}
+                key={u.user}
+                onClick={() => quickLogin(u.user, u.pass)}
                 className="text-left px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-teal-50 dark:hover:bg-teal-950/40 hover:border-teal-300 dark:hover:border-teal-800 transition-colors"
                 style={{ fontSize: '0.75rem' }}
               >
                 <div className="text-slate-700 dark:text-slate-300" style={{ fontWeight: 500 }}>{u.name}</div>
-                <div className="text-slate-400 dark:text-slate-500">{u.email}</div>
+                <div className="text-slate-400 dark:text-slate-500">{u.user} / {u.pass}</div>
               </button>
             ))}
           </div>
