@@ -1,15 +1,107 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, {
+  createContext, useContext, useState, useCallback, useEffect, useRef,
+} from 'react';
 import {
   User, Service, Trade, Message, Conversation, Review,
-  mockUsers, mockServices, mockTrades, mockMessages, mockConversations, mockReviews
+  API_CAT_TO_SLUG, SLUG_TO_API_CAT,
 } from '../data/mockData';
+import {
+  apiLogin, apiLogout, apiRegister, apiGetMe, apiUpdateMe,
+  apiGetUsers, apiGetUser,
+  apiGetCategories,
+  apiGetServices, apiCreateService, apiUpdateService, apiDeleteService,
+  apiGetTrades, apiCreateTrade, apiUpdateTradeStatus,
+  apiGetConversations, apiGetConversation, apiCreateConversation,
+  apiSendMessage, apiMarkConversationRead,
+  apiGetReviews, apiCreateReview,
+  apiAdminGetUsers, apiAdminUpdateUser, apiAdminDeleteUser,
+} from '../api/endpoints';
+import { clearTokens, getTokens } from '../api/client';
+
+// ── MAPPERS API → UI ─────────────────────────────────────────
+
+const mapUser = (u: any): User => ({
+  id: String(u.id),
+  name: u.name || `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username,
+  email: u.email || '',
+  password: '',
+  avatar: u.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.username}&backgroundColor=b6e3f4`,
+  bio: u.bio || '',
+  location: u.location || '',
+  credits: u.credits ?? 0,
+  rating: parseFloat(u.rating) || 0,
+  totalReviews: u.total_reviews ?? 0,
+  memberSince: (u.member_since || u.date_joined || '').split('T')[0] || '',
+  skills: Array.isArray(u.skills) ? u.skills : [],
+  badge: u.badge || undefined,
+  completedTrades: u.completed_trades ?? 0,
+  isAdmin: u.is_admin || u.is_staff || false,
+  hoursGiven: u.hours_given ?? 0,
+  hoursReceived: u.hours_received ?? 0,
+});
+
+const mapService = (s: any): Service => ({
+  id: String(s.id),
+  userId: String(s.user?.id ?? s.user ?? ''),
+  type: s.type,
+  title: s.title,
+  description: s.description || '',
+  category: API_CAT_TO_SLUG[s.category?.name] || 'otros',
+  duration: s.duration,
+  credits: s.credits ?? 1,
+  status: s.status,
+  createdAt: (s.created_at || '').split('T')[0] || '',
+  tags: (s.tags || []).map((t: any) => (typeof t === 'string' ? t : t.name)),
+});
+
+const mapTrade = (t: any): Trade => ({
+  id: String(t.id),
+  serviceId: String(t.service?.id ?? t.service ?? ''),
+  offererId: String(t.offerer?.id ?? t.offerer ?? ''),
+  requesterId: String(t.requester?.id ?? t.requester ?? ''),
+  status: t.status,
+  scheduledDate: (t.scheduled_date || '').split('T')[0] || '',
+  creditsAmount: t.credits_amount ?? 0,
+  createdAt: (t.created_at || '').split('T')[0] || '',
+  completedAt: t.completed_at ? (t.completed_at || '').split('T')[0] : undefined,
+  notes: t.notes || '',
+});
+
+const mapMessage = (m: any, convId: string): Message => ({
+  id: String(m.id),
+  conversationId: convId,
+  senderId: String(m.sender?.id ?? m.sender ?? ''),
+  content: m.content,
+  timestamp: m.timestamp,
+  read: m.read ?? false,
+});
+
+const mapConversation = (c: any): Conversation => ({
+  id: String(c.id),
+  participants: (c.participants || []).map((p: any) => String(p.id ?? p)),
+  lastMessage: c.last_message || '',
+  lastTimestamp: c.last_timestamp || c.updated_at || '',
+  unreadCount: c.unread_count ?? 0,
+});
+
+const mapReview = (r: any): Review => ({
+  id: String(r.id),
+  tradeId: String(r.trade?.id ?? r.trade ?? ''),
+  reviewerId: String(r.reviewer?.id ?? r.reviewer ?? ''),
+  revieweeId: String(r.reviewee?.id ?? r.reviewee ?? ''),
+  rating: r.rating,
+  comment: r.comment || '',
+  createdAt: (r.created_at || '').split('T')[0] || '',
+});
+
+// ── TIPO DE CONTEXTO ─────────────────────────────────────────
 
 interface AppContextType {
   // Auth
   currentUser: User | null;
-  login: (email: string, password: string) => boolean;
+  login: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
-  register: (name: string, email: string, password: string) => boolean;
+  register: (name: string, email: string, password: string, username?: string) => Promise<boolean>;
   updateProfile: (updates: Partial<User>) => void;
 
   // Data
@@ -19,6 +111,8 @@ interface AppContextType {
   messages: Message[];
   conversations: Conversation[];
   reviews: Review[];
+  loading: boolean;
+  apiCategoryMap: Record<string, number>; // slug → api numeric id
 
   // Service Actions
   addService: (service: Omit<Service, 'id' | 'createdAt'>) => void;
@@ -31,8 +125,9 @@ interface AppContextType {
 
   // Message Actions
   sendMessage: (conversationId: string, content: string) => void;
-  startConversation: (otherUserId: string) => string;
+  startConversation: (otherUserId: string) => Promise<string>;
   markConversationRead: (conversationId: string) => void;
+  loadConversationMessages: (conversationId: string) => Promise<void>;
 
   // Review Actions
   addReview: (review: Omit<Review, 'id' | 'createdAt'>) => void;
@@ -51,194 +146,449 @@ interface AppContextType {
   getConversationMessages: (conversationId: string) => Message[];
   getUserConversations: (userId: string) => Conversation[];
   totalUnreadMessages: number;
+
+  // Refresh
+  refreshServices: () => Promise<void>;
+  refreshTrades: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [users, setUsers] = useState<User[]>(mockUsers);
-  const [services, setServices] = useState<Service[]>(mockServices);
-  const [trades, setTrades] = useState<Trade[]>(mockTrades);
-  const [messages, setMessages] = useState<Message[]>(mockMessages);
-  const [conversations, setConversations] = useState<Conversation[]>(mockConversations);
-  const [reviews, setReviews] = useState<Review[]>(mockReviews);
+  const [users, setUsers] = useState<User[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [apiCategoryMap, setApiCategoryMap] = useState<Record<string, number>>({});
+  const loadedConvs = useRef<Set<string>>(new Set());
 
-  const login = useCallback((email: string, password: string): boolean => {
-    const user = users.find(u => u.email === email && u.password === password);
-    if (user) {
-      setCurrentUser(user);
-      return true;
+  // ── FETCH APP DATA ────────────────────────────────────────
+
+  const fetchCategories = useCallback(async () => {
+    try {
+      const data = await apiGetCategories();
+      const cats = data?.results || data || [];
+      const map: Record<string, number> = {};
+      cats.forEach((c: any) => {
+        const slug = API_CAT_TO_SLUG[c.name] || 'otros';
+        map[slug] = c.id;
+      });
+      setApiCategoryMap(map);
+    } catch (e) {
+      console.error('Error fetching categories', e);
     }
-    return false;
-  }, [users]);
+  }, []);
+
+  const fetchUsers = useCallback(async () => {
+    try {
+      const data = await apiGetUsers();
+      const list = data?.results || data || [];
+      setUsers(list.map(mapUser));
+    } catch (e) {
+      console.error('Error fetching users', e);
+    }
+  }, []);
+
+  const fetchServices = useCallback(async () => {
+    try {
+      const data = await apiGetServices();
+      const list = data?.results || data || [];
+      setServices(list.map(mapService));
+    } catch (e) {
+      console.error('Error fetching services', e);
+    }
+  }, []);
+
+  const fetchTrades = useCallback(async () => {
+    try {
+      const data = await apiGetTrades();
+      const list = data?.results || data || [];
+      setTrades(list.map(mapTrade));
+    } catch (e) {
+      console.error('Error fetching trades', e);
+    }
+  }, []);
+
+  const fetchConversations = useCallback(async () => {
+    try {
+      const data = await apiGetConversations();
+      const list = data?.results || data || [];
+      setConversations(list.map(mapConversation));
+    } catch (e) {
+      console.error('Error fetching conversations', e);
+    }
+  }, []);
+
+  const fetchReviews = useCallback(async (userId: string) => {
+    try {
+      const data = await apiGetReviews(`reviewee=${userId}`);
+      const received = (data?.results || data || []).map(mapReview);
+      const data2 = await apiGetReviews(`reviewer=${userId}`);
+      const given = (data2?.results || data2 || []).map(mapReview);
+      const all = [...received, ...given];
+      // dedupe
+      const seen = new Set<string>();
+      setReviews(all.filter(r => { if (seen.has(r.id)) return false; seen.add(r.id); return true; }));
+    } catch (e) {
+      console.error('Error fetching reviews', e);
+    }
+  }, []);
+
+  const loadInitialData = useCallback(async (user: User) => {
+    await Promise.all([
+      fetchCategories(),
+      fetchUsers(),
+      fetchServices(),
+      fetchTrades(),
+      fetchConversations(),
+      fetchReviews(user.id),
+    ]);
+  }, [fetchCategories, fetchUsers, fetchServices, fetchTrades, fetchConversations, fetchReviews]);
+
+  // ── INIT: check stored tokens ─────────────────────────────
+
+  useEffect(() => {
+    const init = async () => {
+      const { access } = getTokens();
+      if (!access) {
+        setLoading(false);
+        return;
+      }
+      try {
+        const meData = await apiGetMe();
+        if (meData) {
+          const user = mapUser(meData);
+          setCurrentUser(user);
+          await loadInitialData(user);
+        }
+      } catch {
+        clearTokens();
+      } finally {
+        setLoading(false);
+      }
+    };
+    init();
+  }, []);
+
+  // ── AUTH ─────────────────────────────────────────────────
+
+  const login = useCallback(async (username: string, password: string): Promise<boolean> => {
+    try {
+      const data = await apiLogin(username, password);
+      if (!data?.access) return false;
+      const user = mapUser(data.user);
+      setCurrentUser(user);
+      setLoading(true);
+      await loadInitialData(user);
+      setLoading(false);
+      return true;
+    } catch (e) {
+      console.error('Login error', e);
+      return false;
+    }
+  }, [loadInitialData]);
 
   const logout = useCallback(() => {
+    apiLogout();
     setCurrentUser(null);
+    setUsers([]);
+    setServices([]);
+    setTrades([]);
+    setMessages([]);
+    setConversations([]);
+    setReviews([]);
+    loadedConvs.current.clear();
   }, []);
 
-  const register = useCallback((name: string, email: string, password: string): boolean => {
-    if (users.find(u => u.email === email)) return false;
-    const newUser: User = {
-      id: `u${Date.now()}`,
-      name,
-      email,
-      password,
-      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${name}&backgroundColor=b6e3f4`,
-      bio: '',
-      location: 'Valencia',
-      credits: 5,
-      rating: 0,
-      totalReviews: 0,
-      memberSince: new Date().toISOString().split('T')[0],
-      skills: [],
-      completedTrades: 0,
-      hoursGiven: 0,
-      hoursReceived: 0,
-    };
-    setUsers(prev => [...prev, newUser]);
-    setCurrentUser(newUser);
-    return true;
-  }, [users]);
+  const register = useCallback(async (
+    name: string, email: string, password: string, username?: string
+  ): Promise<boolean> => {
+    try {
+      const parts = name.trim().split(' ');
+      const first_name = parts[0] || '';
+      const last_name = parts.slice(1).join(' ') || '';
+      const uname = username || name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+      const data = await apiRegister({
+        username: uname,
+        email,
+        first_name,
+        last_name,
+        password,
+        password2: password,
+      });
+      if (!data?.tokens?.access) return false;
+      const user = mapUser(data.user);
+      setCurrentUser(user);
+      setLoading(true);
+      await loadInitialData(user);
+      setLoading(false);
+      return true;
+    } catch (e) {
+      console.error('Register error', e);
+      return false;
+    }
+  }, [loadInitialData]);
 
-  const updateProfile = useCallback((updates: Partial<User>) => {
+  const updateProfile = useCallback(async (updates: Partial<User>) => {
     if (!currentUser) return;
-    setUsers(prev => prev.map(u => u.id === currentUser.id ? { ...u, ...updates } : u));
-    setCurrentUser(prev => prev ? { ...prev, ...updates } : null);
+    try {
+      const payload: any = {};
+      if (updates.name !== undefined) {
+        const parts = (updates.name || '').trim().split(' ');
+        payload.first_name = parts[0] || '';
+        payload.last_name = parts.slice(1).join(' ') || '';
+      }
+      if (updates.bio !== undefined) payload.bio = updates.bio;
+      if (updates.location !== undefined) payload.location = updates.location;
+      if (updates.avatar !== undefined) payload.avatar = updates.avatar;
+      const res = await apiUpdateMe(payload);
+      const updated = mapUser(res);
+      setCurrentUser(updated);
+      setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
+    } catch (e) {
+      console.error('Update profile error', e);
+    }
   }, [currentUser]);
 
-  const addService = useCallback((service: Omit<Service, 'id' | 'createdAt'>) => {
-    const newService: Service = {
-      ...service,
-      id: `s${Date.now()}`,
-      createdAt: new Date().toISOString().split('T')[0],
-    };
-    setServices(prev => [newService, ...prev]);
+  // ── SERVICE ACTIONS ───────────────────────────────────────
+
+  const addService = useCallback(async (service: Omit<Service, 'id' | 'createdAt'>) => {
+    try {
+      const catId = apiCategoryMap[service.category];
+      const payload = {
+        type: service.type,
+        title: service.title,
+        description: service.description,
+        category_id: catId,
+        duration: service.duration,
+        credits: service.credits,
+        status: service.status || 'active',
+        tag_ids: [],
+      };
+      const res = await apiCreateService(payload);
+      setServices(prev => [mapService(res), ...prev]);
+    } catch (e) {
+      console.error('Create service error', e);
+    }
+  }, [apiCategoryMap]);
+
+  const updateService = useCallback(async (id: string, updates: Partial<Service>) => {
+    try {
+      const payload: any = {};
+      if (updates.title !== undefined) payload.title = updates.title;
+      if (updates.description !== undefined) payload.description = updates.description;
+      if (updates.status !== undefined) payload.status = updates.status;
+      if (updates.credits !== undefined) payload.credits = updates.credits;
+      if (updates.duration !== undefined) payload.duration = updates.duration;
+      if (updates.category !== undefined) {
+        payload.category_id = apiCategoryMap[updates.category];
+      }
+      const res = await apiUpdateService(id, payload);
+      setServices(prev => prev.map(s => s.id === id ? mapService(res) : s));
+    } catch (e) {
+      console.error('Update service error', e);
+    }
+  }, [apiCategoryMap]);
+
+  const deleteService = useCallback(async (id: string) => {
+    try {
+      await apiDeleteService(id);
+      setServices(prev => prev.filter(s => s.id !== id));
+    } catch (e) {
+      console.error('Delete service error', e);
+    }
   }, []);
 
-  const updateService = useCallback((id: string, updates: Partial<Service>) => {
-    setServices(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
+  // ── TRADE ACTIONS ────────────────────────────────────────
+
+  const createTrade = useCallback(async (trade: Omit<Trade, 'id' | 'createdAt'>) => {
+    try {
+      const payload = {
+        service_id: parseInt(trade.serviceId),
+        scheduled_date: new Date(trade.scheduledDate).toISOString(),
+        credits_amount: trade.creditsAmount,
+        notes: trade.notes || '',
+      };
+      const res = await apiCreateTrade(payload);
+      setTrades(prev => [mapTrade(res), ...prev]);
+    } catch (e) {
+      console.error('Create trade error', e);
+    }
   }, []);
 
-  const deleteService = useCallback((id: string) => {
-    setServices(prev => prev.filter(s => s.id !== id));
-  }, []);
-
-  const createTrade = useCallback((trade: Omit<Trade, 'id' | 'createdAt'>) => {
-    const newTrade: Trade = {
-      ...trade,
-      id: `t${Date.now()}`,
-      createdAt: new Date().toISOString().split('T')[0],
-    };
-    setTrades(prev => [newTrade, ...prev]);
-  }, []);
-
-  const updateTrade = useCallback((id: string, updates: Partial<Trade>) => {
-    setTrades(prev => prev.map(t => {
-      if (t.id !== id) return t;
-      const updated = { ...t, ...updates };
-      // When trade is completed, transfer credits
-      if (updates.status === 'completed' && t.status !== 'completed') {
-        const offerer = users.find(u => u.id === t.offererId);
-        const requester = users.find(u => u.id === t.requesterId);
-        if (offerer && requester) {
-          setUsers(prev => prev.map(u => {
-            if (u.id === t.offererId) return { ...u, credits: u.credits + t.creditsAmount, hoursGiven: u.hoursGiven + (t.creditsAmount), completedTrades: u.completedTrades + 1 };
-            if (u.id === t.requesterId) return { ...u, credits: Math.max(0, u.credits - t.creditsAmount), hoursReceived: u.hoursReceived + (t.creditsAmount), completedTrades: u.completedTrades + 1 };
-            return u;
-          }));
-          if (currentUser?.id === t.offererId) {
-            setCurrentUser(prev => prev ? { ...prev, credits: prev.credits + t.creditsAmount, completedTrades: prev.completedTrades + 1 } : null);
-          } else if (currentUser?.id === t.requesterId) {
-            setCurrentUser(prev => prev ? { ...prev, credits: Math.max(0, prev.credits - t.creditsAmount), completedTrades: prev.completedTrades + 1 } : null);
+  const updateTrade = useCallback(async (id: string, updates: Partial<Trade>) => {
+    if (updates.status) {
+      try {
+        const res = await apiUpdateTradeStatus(id, updates.status);
+        setTrades(prev => prev.map(t => t.id === id ? mapTrade(res) : t));
+        // Refresh current user credits after trade completion
+        if (updates.status === 'completed') {
+          const meData = await apiGetMe();
+          if (meData && currentUser) {
+            const updated = mapUser(meData);
+            setCurrentUser(updated);
+            setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
           }
         }
+      } catch (e) {
+        console.error('Update trade error', e);
       }
-      return updated;
-    }));
-  }, [users, currentUser]);
-
-  const sendMessage = useCallback((conversationId: string, content: string) => {
-    if (!currentUser) return;
-    const newMessage: Message = {
-      id: `m${Date.now()}`,
-      conversationId,
-      senderId: currentUser.id,
-      content,
-      timestamp: new Date().toISOString(),
-      read: false,
-    };
-    setMessages(prev => [...prev, newMessage]);
-    setConversations(prev => prev.map(c =>
-      c.id === conversationId
-        ? { ...c, lastMessage: content, lastTimestamp: new Date().toISOString() }
-        : c
-    ));
+    }
   }, [currentUser]);
 
-  const startConversation = useCallback((otherUserId: string): string => {
+  // ── CONVERSATION / MESSAGE ACTIONS ────────────────────────
+
+  const loadConversationMessages = useCallback(async (conversationId: string) => {
+    if (loadedConvs.current.has(conversationId)) return;
+    try {
+      const conv = await apiGetConversation(conversationId);
+      const msgs = (conv?.messages || []).map((m: any) => mapMessage(m, conversationId));
+      setMessages(prev => {
+        const existing = prev.filter(m => m.conversationId !== conversationId);
+        return [...existing, ...msgs];
+      });
+      loadedConvs.current.add(conversationId);
+    } catch (e) {
+      console.error('Load conv messages error', e);
+    }
+  }, []);
+
+  const sendMessage = useCallback(async (conversationId: string, content: string) => {
+    if (!currentUser) return;
+    try {
+      const msg = await apiSendMessage(conversationId, content);
+      const mapped = mapMessage(msg, conversationId);
+      setMessages(prev => [...prev, mapped]);
+      setConversations(prev => prev.map(c =>
+        c.id === conversationId
+          ? { ...c, lastMessage: content, lastTimestamp: new Date().toISOString() }
+          : c
+      ));
+    } catch (e) {
+      console.error('Send message error', e);
+    }
+  }, [currentUser]);
+
+  const startConversation = useCallback(async (otherUserId: string): Promise<string> => {
     if (!currentUser) return '';
     const existing = conversations.find(c =>
       c.participants.includes(currentUser.id) && c.participants.includes(otherUserId)
     );
     if (existing) return existing.id;
-    const newConv: Conversation = {
-      id: `c${Date.now()}`,
-      participants: [currentUser.id, otherUserId],
-      lastMessage: '',
-      lastTimestamp: new Date().toISOString(),
-      unreadCount: 0,
-    };
-    setConversations(prev => [newConv, ...prev]);
-    return newConv.id;
+    try {
+      const res = await apiCreateConversation([
+        parseInt(currentUser.id),
+        parseInt(otherUserId),
+      ]);
+      const conv = mapConversation(res);
+      setConversations(prev => {
+        if (prev.find(c => c.id === conv.id)) return prev;
+        return [conv, ...prev];
+      });
+      return conv.id;
+    } catch (e) {
+      console.error('Start conversation error', e);
+      return '';
+    }
   }, [currentUser, conversations]);
 
-  const markConversationRead = useCallback((conversationId: string) => {
-    setConversations(prev => prev.map(c =>
-      c.id === conversationId ? { ...c, unreadCount: 0 } : c
-    ));
-    setMessages(prev => prev.map(m =>
-      m.conversationId === conversationId ? { ...m, read: true } : m
-    ));
+  const markConversationRead = useCallback(async (conversationId: string) => {
+    try {
+      await apiMarkConversationRead(conversationId);
+      setConversations(prev => prev.map(c =>
+        c.id === conversationId ? { ...c, unreadCount: 0 } : c
+      ));
+      setMessages(prev => prev.map(m =>
+        m.conversationId === conversationId ? { ...m, read: true } : m
+      ));
+    } catch (e) {
+      // silently fail
+    }
   }, []);
 
-  const addReview = useCallback((review: Omit<Review, 'id' | 'createdAt'>) => {
-    const newReview: Review = {
-      ...review,
-      id: `r${Date.now()}`,
-      createdAt: new Date().toISOString().split('T')[0],
-    };
-    setReviews(prev => [newReview, ...prev]);
-    // Update user rating
-    const userReviews = [...reviews, newReview].filter(r => r.revieweeId === review.revieweeId);
-    const avgRating = userReviews.reduce((acc, r) => acc + r.rating, 0) / userReviews.length;
-    setUsers(prev => prev.map(u =>
-      u.id === review.revieweeId
-        ? { ...u, rating: Math.round(avgRating * 10) / 10, totalReviews: userReviews.length }
-        : u
-    ));
-  }, [reviews]);
+  // ── REVIEW ACTIONS ────────────────────────────────────────
 
-  const adminDeleteUser = useCallback((userId: string) => {
-    setUsers(prev => prev.filter(u => u.id !== userId));
+  const addReview = useCallback(async (review: Omit<Review, 'id' | 'createdAt'>) => {
+    try {
+      const payload = {
+        trade_id: parseInt(review.tradeId),
+        reviewee_id: parseInt(review.revieweeId),
+        rating: review.rating,
+        comment: review.comment,
+      };
+      const res = await apiCreateReview(payload);
+      setReviews(prev => [mapReview(res), ...prev]);
+      // Update reviewee rating
+      const revieweeData = await apiGetUser(review.revieweeId);
+      if (revieweeData) {
+        const updatedUser = mapUser(revieweeData);
+        setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
+      }
+    } catch (e) {
+      console.error('Add review error', e);
+    }
   }, []);
 
-  const adminDeleteService = useCallback((serviceId: string) => {
-    setServices(prev => prev.filter(s => s.id !== serviceId));
+  // ── ADMIN ACTIONS ─────────────────────────────────────────
+
+  const adminDeleteUser = useCallback(async (userId: string) => {
+    try {
+      await apiAdminDeleteUser(userId);
+      setUsers(prev => prev.filter(u => u.id !== userId));
+    } catch (e) {
+      console.error('Admin delete user error', e);
+    }
   }, []);
 
-  const adminUpdateUser = useCallback((userId: string, updates: Partial<User>) => {
-    setUsers(prev => prev.map(u => u.id === userId ? { ...u, ...updates } : u));
+  const adminDeleteService = useCallback(async (serviceId: string) => {
+    try {
+      await apiDeleteService(serviceId);
+      setServices(prev => prev.filter(s => s.id !== serviceId));
+    } catch (e) {
+      console.error('Admin delete service error', e);
+    }
   }, []);
 
-  // Helpers
+  const adminUpdateUser = useCallback(async (userId: string, updates: Partial<User>) => {
+    try {
+      const payload: any = {};
+      if (updates.badge !== undefined) payload.badge = updates.badge || null;
+      if (updates.credits !== undefined) payload.credits = updates.credits;
+      const res = await apiAdminUpdateUser(userId, payload);
+      const updated = mapUser({ ...res, id: userId });
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, ...updated } : u));
+    } catch (e) {
+      console.error('Admin update user error', e);
+    }
+  }, []);
+
+  // ── REFRESH HELPERS ───────────────────────────────────────
+
+  const refreshServices = useCallback(async () => {
+    await fetchServices();
+  }, [fetchServices]);
+
+  const refreshTrades = useCallback(async () => {
+    await fetchTrades();
+  }, [fetchTrades]);
+
+  // ── SYNC HELPERS ─────────────────────────────────────────
+
   const getUserById = useCallback((id: string) => users.find(u => u.id === id), [users]);
   const getServiceById = useCallback((id: string) => services.find(s => s.id === id), [services]);
   const getTradeById = useCallback((id: string) => trades.find(t => t.id === id), [trades]);
-  const getUserReviews = useCallback((userId: string) => reviews.filter(r => r.revieweeId === userId), [reviews]);
-  const getUserTrades = useCallback((userId: string) => trades.filter(t => t.offererId === userId || t.requesterId === userId), [trades]);
-  const getConversationMessages = useCallback((conversationId: string) => messages.filter(m => m.conversationId === conversationId), [messages]);
-  const getUserConversations = useCallback((userId: string) => conversations.filter(c => c.participants.includes(userId)), [conversations]);
+  const getUserReviews = useCallback((userId: string) =>
+    reviews.filter(r => r.revieweeId === userId), [reviews]);
+  const getUserTrades = useCallback((userId: string) =>
+    trades.filter(t => t.offererId === userId || t.requesterId === userId), [trades]);
+  const getConversationMessages = useCallback((convId: string) =>
+    messages.filter(m => m.conversationId === convId), [messages]);
+  const getUserConversations = useCallback((userId: string) =>
+    conversations.filter(c => c.participants.includes(userId)), [conversations]);
 
   const totalUnreadMessages = currentUser
     ? conversations
@@ -250,14 +600,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     <AppContext.Provider value={{
       currentUser, login, logout, register, updateProfile,
       users, services, trades, messages, conversations, reviews,
+      loading, apiCategoryMap,
       addService, updateService, deleteService,
       createTrade, updateTrade,
-      sendMessage, startConversation, markConversationRead,
+      sendMessage, startConversation, markConversationRead, loadConversationMessages,
       addReview,
       adminDeleteUser, adminDeleteService, adminUpdateUser,
       getUserById, getServiceById, getTradeById,
       getUserReviews, getUserTrades, getConversationMessages, getUserConversations,
       totalUnreadMessages,
+      refreshServices, refreshTrades,
     }}>
       {children}
     </AppContext.Provider>
