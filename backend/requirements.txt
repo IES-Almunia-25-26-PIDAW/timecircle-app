@@ -14,6 +14,7 @@ jsonschema-specifications==2025.9.1
 packaging==26.0
 pillow==10.4.0
 pluggy==1.6.0
+psycopg==3.3.3
 psycopg2-binary==2.9.9
 Pygments==2.19.2
 PyJWT==2.12.1
