@@ -22,7 +22,7 @@ load_dotenv(BASE_DIR / ".env", override=True)
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-CHANGE-ME-in-production')
 DEBUG      = os.getenv('DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost', 'backend', '172.20.0.1']
+ALLOWED_HOSTS = list(os.getenv('ALLOWED_HOSTS'))
 
 # ── Redis ─────────────────────────────────────────────────
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
@@ -46,6 +46,7 @@ INSTALLED_APPS = [
 
     # Proyecto
     'api',
+    'backend'
 ]
 
 # ── Middleware ────────────────────────────────────────────
@@ -59,7 +60,6 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',
     'api.middleware.ResponseTimeMiddleware'
 ]
 
