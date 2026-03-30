@@ -26,11 +26,6 @@ export const Login: React.FC = () => {
     }
   };
 
-  const quickLogin = (u: string, p: string) => {
-    setUsername(u);
-    setPassword(p);
-  };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-teal-50 via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 flex items-center justify-center p-4 transition-colors duration-300">
       <div className="fixed top-4 right-4">
@@ -112,29 +107,6 @@ export const Login: React.FC = () => {
               Regístrate aquí
             </Link>
           </p>
-        </div>
-
-        {/* Demo users */}
-        <div className="mt-6 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm p-4">
-          <p className="text-slate-500 dark:text-slate-400 mb-3 text-center" style={{ fontSize: '0.8rem' }}>Acceso rápido para explorar</p>
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              { name: 'María García', user: 'maria_garcia', pass: 'Demo1234!' },
-              { name: 'Carlos López', user: 'carlos_lopez', pass: 'Demo1234!' },
-              { name: 'Ana Martínez', user: 'ana_martinez', pass: 'Demo1234!' },
-              { name: '⚙️ Administrador', user: 'admin', pass: 'Admin1234!' },
-            ].map(u => (
-              <button
-                key={u.user}
-                onClick={() => quickLogin(u.user, u.pass)}
-                className="text-left px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-teal-50 dark:hover:bg-teal-950/40 hover:border-teal-300 dark:hover:border-teal-800 transition-colors"
-                style={{ fontSize: '0.75rem' }}
-              >
-                <div className="text-slate-700 dark:text-slate-300" style={{ fontWeight: 500 }}>{u.name}</div>
-                <div className="text-slate-400 dark:text-slate-500">{u.user} / {u.pass}</div>
-              </button>
-            ))}
-          </div>
         </div>
 
         <p className="text-center text-slate-400 dark:text-slate-500 mt-4" style={{ fontSize: '0.75rem' }}>
