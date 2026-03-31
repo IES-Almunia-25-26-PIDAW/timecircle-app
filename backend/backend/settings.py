@@ -169,6 +169,7 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
     'USER_ID_FIELD': 'id',
     'USER_ID_CLAIM': 'user_id',
+    'UPDATE_LAST_LOGIN': True,
 }
 
 # ── CORS ──────────────────────────────────────────────────

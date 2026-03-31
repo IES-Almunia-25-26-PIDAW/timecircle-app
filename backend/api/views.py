@@ -5,7 +5,6 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from django.contrib.auth.models import update_last_login
 
 from drf_spectacular.utils import (
     extend_schema, extend_schema_view,
@@ -42,7 +41,6 @@ from .serializers import (
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
         data = super().validate(attrs)
-        update_last_login(None, self.user)
         data['user'] = UserSerializer(self.user).data
         return data
 
