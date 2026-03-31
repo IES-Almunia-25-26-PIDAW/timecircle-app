@@ -121,7 +121,7 @@ def make_trade(
 
 def make_completed_trade(offerer: User, requester: User, credits_amount: int = 2) -> Trade:
     service = make_service(offerer, credits=credits_amount)
-    return Trade.objects.create(
+    trade = Trade.objects.create(
         service=service,
         offerer=offerer,
         requester=requester,
@@ -130,6 +130,20 @@ def make_completed_trade(offerer: User, requester: User, credits_amount: int = 2
         credits_amount=credits_amount,
         completed_at=timezone.now(),
     )
+    # Replicar lo que hace _transfer_credits en TradeStatusUpdateSerializer
+    Transaction.objects.create(
+        user=requester,
+        trade=trade,
+        amount=-credits_amount,
+        transaction_type=Transaction.Type.DEBIT,
+    )
+    Transaction.objects.create(
+        user=offerer,
+        trade=trade,
+        amount=credits_amount,
+        transaction_type=Transaction.Type.CREDIT,
+    )
+    return trade
 
 
 # ─────────────────────────────────────────────
