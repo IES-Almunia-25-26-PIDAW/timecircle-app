@@ -230,14 +230,22 @@ export const Landing: React.FC = () => {
       </section>
 
       {/* Footer */}
-      <footer className="bg-slate-900 dark:bg-slate-950 border-t border-slate-800 text-slate-400 py-8">
+       <footer className="bg-slate-900 dark:bg-slate-950 border-t border-slate-800 text-slate-400 py-8">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <Clock className="w-4 h-4 text-teal-400" />
             <span className="text-white" style={{ fontWeight: 600 }}>TimeCircle</span>
             <span style={{ fontSize: '0.8rem' }}>Banco de Tiempo Comunitario</span>
           </div>
-          <p style={{ fontSize: '0.8rem' }}>© 2026 TimeCircle · Hecho con ❤️ para la comunidad</p>
+          <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2" style={{ fontSize: '0.8rem' }}>
+            <Link to="/terminos" className="hover:text-teal-400 transition-colors">
+              Términos y condiciones
+            </Link>
+            <Link to="/contacto" className="hover:text-teal-400 transition-colors">
+              Contacto
+            </Link>
+            <span>© 2026 TimeCircle · Hecho con ❤️ para la comunidad</span>
+          </div>
         </div>
       </footer>
     </div>

@@ -13,6 +13,8 @@ import { Profile } from './pages/Profile';
 import { Leaderboard } from './pages/Leaderboard';
 import { Admin } from './pages/Admin';
 import { History } from './pages/History';
+import { TermsOfService } from './pages/TermsOfService';
+import { Contact } from './pages/Contact';
 
 export const router = createBrowserRouter([
   {
@@ -27,20 +29,30 @@ export const router = createBrowserRouter([
     path: '/register',
     Component: Register,
   },
+  // ── Páginas públicas (sin Layout autenticado) ──
+  {
+    path: '/terminos',
+    Component: TermsOfService,
+  },
+  {
+    path: '/contacto',
+    Component: Contact,
+  },
+  // ── Área privada ──
   {
     path: '/',
     Component: Layout,
     children: [
-      { path: 'dashboard', Component: Dashboard },
-      { path: 'services', Component: Services },
+      { path: 'dashboard',    Component: Dashboard },
+      { path: 'services',     Component: Services },
       { path: 'services/new', Component: NewService },
       { path: 'services/:id', Component: ServiceDetail },
-      { path: 'trades', Component: Trades },
-      { path: 'messages', Component: Messages },
-      { path: 'profile/:id', Component: Profile },
-      { path: 'leaderboard', Component: Leaderboard },
-      { path: 'history', Component: History },
-      { path: 'admin', Component: Admin },
+      { path: 'trades',       Component: Trades },
+      { path: 'messages',     Component: Messages },
+      { path: 'profile/:id',  Component: Profile },
+      { path: 'leaderboard',  Component: Leaderboard },
+      { path: 'history',      Component: History },
+      { path: 'admin',        Component: Admin },
     ],
   },
 ]);
