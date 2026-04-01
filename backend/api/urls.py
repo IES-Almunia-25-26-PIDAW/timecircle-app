@@ -34,6 +34,10 @@ Router endpoints:
 
   /api/reviews/                → ReviewViewSet
 
+Contacto (público):
+
+  /contact → ContactView 
+
 Admin endpoints:
   GET    /api/admin/stats/              → Estadísticas globales
   GET    /api/admin/users/              → Listado de usuarios
@@ -57,7 +61,7 @@ from .views import (
     UserViewSet, CategoryViewSet, TagViewSet, SkillViewSet,
     ServiceViewSet, TradeViewSet,
     ConversationViewSet, ReviewViewSet,
-    AdminStatsView, AdminUserViewSet,
+    AdminStatsView, AdminUserViewSet, ContactView
 )
 
 # ── Router principal ──────────────────────────────────────
@@ -80,6 +84,9 @@ urlpatterns = [
     path('auth/refresh/',  TokenRefreshView.as_view(), name='auth-refresh'),
     path('auth/me/',       MeView.as_view(),        name='auth-me'),
     path('auth/logout/',   LogoutView.as_view(),    name='auth-logout'),
+
+    # Contacto (público, sin autenticación)
+    path('contact/',       ContactView.as_view(),   name='contact'),
 
     # Admin stats (fuera del router para evitar conflicto con el prefijo admin/users)
     path('admin/stats/',   AdminStatsView.as_view(), name='admin-stats'),

@@ -110,6 +110,24 @@ export const apiGetReviews = (params = '') =>
 export const apiCreateReview = (data: any) =>
   apiFetch('/api/reviews/', { method: 'POST', body: JSON.stringify(data) });
 
+// ── CONTACT ───────────────────────────────────────────────
+
+export const apiSendContactMessage = (data: {
+  name: string;
+  email: string;
+  reason: string;
+  message: string;
+}) =>
+  fetch(`https://timecircle-app.onrender.com/api/contact/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  }).then(async (res) => {
+    if (res.status === 201) return res.json();
+    const err = await res.json().catch(() => ({}));
+    throw err;
+  });
+
 // ── ADMIN ─────────────────────────────────────────────────
 
 export const apiAdminGetStats = () => apiFetch('/api/admin/stats/');

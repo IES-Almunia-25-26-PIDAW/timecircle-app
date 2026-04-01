@@ -5,7 +5,7 @@ from django.utils.translation import gettext_lazy as _
 from .models import (
     User, Category, Tag, Skill, UserSkill,
     Service, Trade, Transaction,
-    Conversation, Message, Review,
+    Conversation, Message, Review, ContactMessage
 )
 
 
@@ -147,3 +147,17 @@ class ReviewAdmin(admin.ModelAdmin):
     date_hierarchy = 'created_at'
     raw_id_fields  = ['reviewer', 'reviewee', 'trade']
     readonly_fields = ['created_at']
+
+# Contacto
+
+@admin.register(ContactMessage)
+class ContactMessageAdmin(admin.ModelAdmin):
+    list_display  = ['name', 'email', 'reason', 'read', 'created_at']
+    list_filter   = ['reason', 'read', 'created_at']
+    search_fields = ['name', 'email', 'message']
+    list_editable = ['read']
+    readonly_fields = ['name', 'email', 'reason', 'message', 'created_at']
+    date_hierarchy = 'created_at'
+ 
+    def has_add_permission(self, request):
+        return False  # Solo se crean desde el formulario público
