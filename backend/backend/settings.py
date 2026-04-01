@@ -180,7 +180,7 @@ CORS_ALLOWED_ORIGINS = [
 
 # Patrones dinámicos (previews de Vercel)
 CORS_ALLOWED_ORIGIN_REGEXES = [
-    r"^https://timecircle-[a-z0-9]+-xarzys-projects\.vercel\.app$",
+    r"^https://timecircle-[a-z0-9\-]+-xarzys-projects\.vercel\.app$",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
