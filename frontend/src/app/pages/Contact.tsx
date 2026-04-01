@@ -3,8 +3,10 @@ import { Link } from 'react-router';
 import {
   Clock, ArrowLeft, Mail, MessageSquare, Bug,
   Shield, HelpCircle, Send, CheckCircle, Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { apiSendContactMessage } from '../api/endpoints';
 
 type ContactReason = 'soporte' | 'legal' | 'reporte' | 'sugerencia' | 'otro';
 
@@ -41,13 +43,14 @@ const FAQ = [
 
 export const Contact: React.FC = () => {
   const [selectedReason, setSelectedReason] = useState<ContactReason | null>(null);
-  const [name, setName]     = useState('');
-  const [email, setEmail]   = useState('');
+  const [name, setName]       = useState('');
+  const [email, setEmail]     = useState('');
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
-  const [sent, setSent]     = useState(false);
+  const [sent, setSent]       = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [errors, setErrors]   = useState<Record<string, string>>({});
+  const [apiError, setApiError] = useState('');
 
   const validate = () => {
     const e: Record<string, string> = {};
@@ -62,13 +65,42 @@ export const Contact: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setApiError('');
     const errs = validate();
     if (Object.keys(errs).length > 0) { setErrors(errs); return; }
+
     setSending(true);
-    // Simulación de envío (en producción conectar con backend)
-    await new Promise(r => setTimeout(r, 1500));
-    setSending(false);
-    setSent(true);
+    try {
+      await apiSendContactMessage({
+        name:    name.trim(),
+        email:   email.trim().toLowerCase(),
+        reason:  selectedReason!,
+        message: message.trim(),
+      });
+      setSent(true);
+    } catch (err: any) {
+      // Muestra el primer error de validación del backend, o un mensaje genérico
+      const firstError =
+        err?.name?.[0] ||
+        err?.email?.[0] ||
+        err?.reason?.[0] ||
+        err?.message?.[0] ||
+        err?.detail ||
+        'No hemos podido enviar tu mensaje. Por favor inténtalo de nuevo.';
+      setApiError(firstError);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleReset = () => {
+    setSent(false);
+    setName('');
+    setEmail('');
+    setMessage('');
+    setSelectedReason(null);
+    setErrors({});
+    setApiError('');
   };
 
   return (
@@ -120,7 +152,7 @@ export const Contact: React.FC = () => {
                   Hemos recibido tu consulta. Te responderemos en el menor tiempo posible en <strong>{email}</strong>.
                 </p>
                 <button
-                  onClick={() => { setSent(false); setName(''); setEmail(''); setMessage(''); setSelectedReason(null); }}
+                  onClick={handleReset}
                   className="px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl transition-colors"
                   style={{ fontSize: '0.875rem', fontWeight: 600 }}
                 >
@@ -132,6 +164,14 @@ export const Contact: React.FC = () => {
                 <h2 className="text-slate-900 dark:text-white" style={{ fontWeight: 700, fontSize: '1.1rem' }}>
                   Formulario de contacto
                 </h2>
+
+                {/* Error de API */}
+                {apiError && (
+                  <div className="flex items-start gap-2 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 px-4 py-3 rounded-xl">
+                    <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                    <span style={{ fontSize: '0.875rem' }}>{apiError}</span>
+                  </div>
+                )}
 
                 {/* Nombre y email */}
                 <div className="grid sm:grid-cols-2 gap-4">
@@ -215,7 +255,9 @@ export const Contact: React.FC = () => {
                       ? <p className="text-red-500" style={{ fontSize: '0.75rem' }}>{errors.message}</p>
                       : <span />
                     }
-                    <span className="text-slate-400 dark:text-slate-500" style={{ fontSize: '0.7rem' }}>{message.length} caracteres</span>
+                    <span className={`dark:text-slate-500 ${message.length < 20 ? 'text-red-400' : 'text-slate-400'}`} style={{ fontSize: '0.7rem' }}>
+                      {message.length}/5000
+                    </span>
                   </div>
                 </div>
 
@@ -249,9 +291,9 @@ export const Contact: React.FC = () => {
               </h3>
               <div className="space-y-3">
                 {[
-                  { icon: <HelpCircle className="w-4 h-4" />, label: 'Soporte técnico', email: 'soporte@timecircle.app', color: 'bg-blue-100 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400' },
+                  { icon: <HelpCircle className="w-4 h-4" />, label: 'Soporte técnico',  email: 'soporte@timecircle.app',    color: 'bg-blue-100 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400' },
                   { icon: <Shield className="w-4 h-4" />,     label: 'Privacidad y datos',email: 'privacidad@timecircle.app', color: 'bg-purple-100 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400' },
-                  { icon: <Bug className="w-4 h-4" />,        label: 'Reportar abuso',   email: 'abuso@timecircle.app',     color: 'bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400' },
+                  { icon: <Bug className="w-4 h-4" />,        label: 'Reportar abuso',   email: 'abuso@timecircle.app',      color: 'bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400' },
                 ].map(({ icon, label, email, color }) => (
                   <a key={email} href={`mailto:${email}`} className="flex items-center gap-3 p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl transition-colors group">
                     <div className={`w-9 h-9 rounded-lg ${color} flex items-center justify-center flex-shrink-0`}>

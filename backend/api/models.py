@@ -27,8 +27,8 @@ class User(AbstractUser):
 
     # ── Economía de créditos ─────────────────
     credits        = models.IntegerField(default=10)
-    hours_given    = models.PositiveIntegerField(default=0)   # Horas donadas (como proveedor)
-    hours_received = models.PositiveIntegerField(default=0)   # Horas recibidas (como cliente)
+    hours_given    = models.PositiveIntegerField(default=0)
+    hours_received = models.PositiveIntegerField(default=0)
 
     # ── Estadísticas cacheadas ──────────────
     rating           = models.DecimalField(max_digits=3, decimal_places=2, default=0.00)
@@ -37,14 +37,12 @@ class User(AbstractUser):
     badge            = models.CharField(max_length=10, choices=Badge.choices, blank=True, null=True)
 
     class Meta:
-        db_table = 'user_account'   # 'user' es palabra reservada en Postgres
+        db_table = 'user_account'
         verbose_name = _('Usuario')
         verbose_name_plural = _('Usuarios')
 
     def __str__(self):
         return f'{self.get_full_name() or self.username} <{self.email}>'
-
-    # ── Helpers ──────────────────────────────
 
     def update_badge(self):
         """Recalcula y persiste la insignia según trades completados."""
@@ -71,10 +69,6 @@ class User(AbstractUser):
 # ─────────────────────────────────────────────
 
 class Category(models.Model):
-    """
-    Las 12 categorías de servicios disponibles en TimeCircle.
-    Se inicializan con: python manage.py seed_categories
-    """
     name        = models.CharField(max_length=50, unique=True)
     description = models.TextField(max_length=200, blank=True)
     icon        = models.CharField(max_length=50, blank=True, default='',
@@ -90,7 +84,6 @@ class Category(models.Model):
 
 
 class Tag(models.Model):
-    """Etiquetas libres para los servicios."""
     name = models.CharField(max_length=50, unique=True)
 
     class Meta:
@@ -107,7 +100,6 @@ class Tag(models.Model):
 # ─────────────────────────────────────────────
 
 class Skill(models.Model):
-    """Habilidades registradas en la plataforma."""
     name        = models.CharField(max_length=30, unique=True)
     description = models.TextField(max_length=200, blank=True)
 
@@ -121,7 +113,6 @@ class Skill(models.Model):
 
 
 class UserSkill(models.Model):
-    """Relación entre usuarios y sus habilidades."""
     user  = models.ForeignKey(User,  on_delete=models.CASCADE, related_name='user_skills')
     skill = models.ForeignKey(Skill, on_delete=models.CASCADE, related_name='user_skills')
 
@@ -140,12 +131,6 @@ class UserSkill(models.Model):
 # ─────────────────────────────────────────────
 
 class Service(models.Model):
-    """
-    Oferta o solicitud de servicio publicada por un usuario.
-    - type='offer'   → el usuario ofrece su tiempo/habilidad
-    - type='request' → el usuario solicita ayuda de otro
-    """
-
     class Type(models.TextChoices):
         OFFER   = 'offer',   _('Oferta')
         REQUEST = 'request', _('Solicitud')
@@ -181,15 +166,6 @@ class Service(models.Model):
 # ─────────────────────────────────────────────
 
 class Trade(models.Model):
-    """
-    Intercambio entre dos usuarios.
-    Flujo de estados: pending → accepted → in_progress → completed
-                                ↘ cancelled (desde cualquier estado activo)
-
-    Al pasar a 'completed' los créditos se transfieren automáticamente
-    (lógica en TradeStatusUpdateSerializer.update).
-    """
-
     class Status(models.TextChoices):
         PENDING     = 'pending',     _('Pendiente')
         ACCEPTED    = 'accepted',    _('Aceptado')
@@ -222,12 +198,6 @@ class Trade(models.Model):
 # ─────────────────────────────────────────────
 
 class Transaction(models.Model):
-    """
-    Registro inmutable de cada movimiento de créditos.
-    Se crea automáticamente al completar un Trade.
-    amount > 0 → entrada de créditos | amount < 0 → salida de créditos
-    """
-
     class Type(models.TextChoices):
         DEBIT  = 'debit',  _('Débito')
         CREDIT = 'credit', _('Crédito')
@@ -253,11 +223,6 @@ class Transaction(models.Model):
 # ─────────────────────────────────────────────
 
 class Conversation(models.Model):
-    """
-    Conversación entre dos o más participantes.
-    Si ya existe una entre los mismos participantes, se reutiliza
-    (lógica en ConversationSerializer.create).
-    """
     participants = models.ManyToManyField(User, related_name='conversations')
     created_at   = models.DateTimeField(auto_now_add=True)
     updated_at   = models.DateTimeField(auto_now=True)
@@ -274,7 +239,6 @@ class Conversation(models.Model):
 
 
 class Message(models.Model):
-    """Mensaje individual dentro de una conversación."""
     conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name='messages')
     sender       = models.ForeignKey(User,         on_delete=models.CASCADE, related_name='sent_messages')
     content      = models.TextField(max_length=1000)
@@ -296,12 +260,6 @@ class Message(models.Model):
 # ─────────────────────────────────────────────
 
 class Review(models.Model):
-    """
-    Valoración que un usuario deja sobre otro tras completar un intercambio.
-    - Cada participante solo puede valorar una vez por Trade (unique_together).
-    - El rating debe estar entre 1 y 5 (CheckConstraint a nivel DB).
-    - Al guardarse recalcula el rating del usuario valorado (ver serializer).
-    """
     trade      = models.ForeignKey(Trade, on_delete=models.CASCADE, related_name='reviews')
     reviewer   = models.ForeignKey(User,  on_delete=models.CASCADE, related_name='given_reviews')
     reviewee   = models.ForeignKey(User,  on_delete=models.CASCADE, related_name='received_reviews')
@@ -324,3 +282,37 @@ class Review(models.Model):
 
     def __str__(self):
         return f'{self.reviewer.username} → {self.reviewee.username} · {self.rating}★'
+
+
+# ─────────────────────────────────────────────
+#  MENSAJES DE CONTACTO
+# ─────────────────────────────────────────────
+
+class ContactMessage(models.Model):
+    """
+    Mensaje enviado a través del formulario de contacto público.
+    No requiere autenticación para su creación.
+    """
+
+    class Reason(models.TextChoices):
+        SUPPORT    = 'soporte',    _('Soporte técnico')
+        LEGAL      = 'legal',      _('Consulta legal')
+        REPORT     = 'reporte',    _('Reportar usuario')
+        SUGGESTION = 'sugerencia', _('Sugerencia')
+        OTHER      = 'otro',       _('Otro motivo')
+
+    name       = models.CharField(max_length=150)
+    email      = models.EmailField()
+    reason     = models.CharField(max_length=20, choices=Reason.choices)
+    message    = models.TextField(max_length=5000)
+    created_at = models.DateTimeField(auto_now_add=True)
+    read       = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = 'contact_message'
+        ordering = ['-created_at']
+        verbose_name = _('Mensaje de contacto')
+        verbose_name_plural = _('Mensajes de contacto')
+
+    def __str__(self):
+        return f'[{self.get_reason_display()}] {self.name} <{self.email}>'

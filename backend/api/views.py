@@ -17,9 +17,8 @@ from django.utils import timezone
 from datetime import timedelta
 
 from .models import (
-    User, Category, Tag, Skill,
-    Service, Trade, Transaction,
-    Conversation, Message, Review,
+    User, Category, Tag, Skill, Service, Trade, Transaction,
+    Conversation, Message, Review, ContactMessage 
 )
 from .serializers import (
     UserRegistrationSerializer, UserSerializer, UserUpdateSerializer, UserRankingSerializer,
@@ -30,7 +29,7 @@ from .serializers import (
     TransactionSerializer,
     ConversationSerializer, MessageSerializer, MessageCreateSerializer,
     ReviewSerializer, ReviewCreateSerializer,
-    AdminUserSerializer, AdminUserUpdateSerializer,
+    AdminUserSerializer, AdminUserUpdateSerializer, ContactMessageSerializer
 )
 
 
@@ -848,3 +847,39 @@ class AdminUserViewSet(viewsets.ModelViewSet):
                 user.transactions.order_by('-created_at')[:20], many=True
             ).data,
         })
+# ══════════════════════════════════════════════════════════
+#  CONTACTO
+# ══════════════════════════════════════════════════════════
+
+@extend_schema(tags=['Contact'])
+class ContactView(generics.CreateAPIView):
+    """
+    Formulario de contacto público.
+    No requiere autenticación.
+    Guarda el mensaje en la base de datos y lo expone en el admin de Django.
+    """
+    queryset           = ContactMessage.objects.all()
+    serializer_class   = ContactMessageSerializer
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        summary='Enviar mensaje de contacto',
+        description=(
+            'Endpoint público para recibir mensajes del formulario de contacto. '
+            'Los mensajes se almacenan en la base de datos y son visibles en el '
+            'panel de administración de Django.'
+        ),
+        request=ContactMessageSerializer,
+        responses={
+            201: OpenApiResponse(description='Mensaje recibido correctamente'),
+            400: OpenApiResponse(description='Datos inválidos'),
+        },
+    )
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(
+            {'detail': 'Mensaje recibido. Te responderemos en 2–5 días hábiles.'},
+            status=status.HTTP_201_CREATED,
+        )

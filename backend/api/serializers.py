@@ -4,9 +4,8 @@ from django.db import transaction
 from django.utils import timezone
 
 from .models import (
-    User, Category, Tag, Skill, UserSkill,
-    Service, Trade, Transaction,
-    Conversation, Message, Review,
+    User, Category, Tag, Skill, UserSkill, Service, Trade, 
+    Transaction, Conversation, Message, Review, ContactMessage
 )
 
 
@@ -591,4 +590,32 @@ class AdminUserUpdateSerializer(serializers.ModelSerializer):
     def validate_credits(self, value: int) -> int:
         if value < 0:
             raise serializers.ValidationError('Los créditos no pueden ser negativos mediante ajuste manual.')
+        return value
+    
+# ══════════════════════════════════════════════════════════
+#  CONTACTO
+# ══════════════════════════════════════════════════════════
+
+class ContactMessageSerializer(serializers.ModelSerializer):
+    """Serializer para el formulario de contacto público."""
+
+    class Meta:
+        model  = ContactMessage
+        fields = ['id', 'name', 'email', 'reason', 'message', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+    def validate_name(self, value: str) -> str:
+        if len(value.strip()) < 2:
+            raise serializers.ValidationError('El nombre debe tener al menos 2 caracteres.')
+        return value.strip()
+
+    def validate_message(self, value: str) -> str:
+        if len(value.strip()) < 20:
+            raise serializers.ValidationError('El mensaje debe tener al menos 20 caracteres.')
+        return value.strip()
+
+    def validate_reason(self, value: str) -> str:
+        valid = [r[0] for r in ContactMessage.Reason.choices]
+        if value not in valid:
+            raise serializers.ValidationError(f'Motivo inválido. Opciones: {valid}')
         return value
