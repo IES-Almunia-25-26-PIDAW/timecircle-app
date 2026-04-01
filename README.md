@@ -135,7 +135,7 @@ docker compose up
 ### 1️⃣ Clonar el repositorio
 
 ```bash
-git clone https://github.com/Xarzy/timecircle.git
+git clone https://github.com/IES-Almunia-25-26-PIDAW/timecircle-app
 cd timecircle
 ```
 
