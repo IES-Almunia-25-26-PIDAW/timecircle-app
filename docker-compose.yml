@@ -39,7 +39,6 @@ services:
       dockerfile: Dockerfile
     container_name: timecircle_backend
     restart: unless-stopped
-    entrypoint: ["/app/entrypoint.sh"]
     volumes:
       - ./backend:/app
       - static_files:/app/static
