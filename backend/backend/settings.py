@@ -175,7 +175,7 @@ SIMPLE_JWT = {
 # ── CORS ──────────────────────────────────────────────────
 # En producción, reemplaza con los dominios reales del frontend
 CORS_ALLOWED_ORIGINS = [
-    'https://frontend-jet-delta-45.vercel.app/', # Producción
+    'https://frontend-jet-delta-45.vercel.app', # Producción
 ]
 
 # Patrones dinámicos (previews de Vercel)
