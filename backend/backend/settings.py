@@ -23,16 +23,17 @@ SECRET_KEY              = os.getenv('SECRET_KEY', 'django-insecure-CHANGE-ME-in-
 DEBUG                   = os.getenv('DEBUG', 'True') == 'True'
 
 # --- Cookies seguras ---
-SESSION_COOKIE_SECURE = True       # Cookie de sesión solo por HTTPS
-CSRF_COOKIE_SECURE    = True       # Cookie CSRF solo por HTTPS
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SESSION_COOKIE_SECURE = not DEBUG       # Cookie de sesión solo por HTTPS
+CSRF_COOKIE_SECURE    = not DEBUG       # Cookie CSRF solo por HTTPS
 SESSION_COOKIE_HTTPONLY = True     # JS no puede leer la cookie de sesión
 CSRF_COOKIE_HTTPONLY    = False    # El frontend necesita leer el CSRF token
 
 # --- Protección adicional ---
-SECURE_SSL_REDIRECT         = True   # Redirige HTTP → HTTPS automáticamente
-SECURE_HSTS_SECONDS         = 31536000  # Fuerza HTTPS durante 1 año (HSTS)
-SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-SECURE_CONTENT_TYPE_NOSNIFF = True   # Evita que el navegador adivine el MIME type
+SECURE_SSL_REDIRECT         = not DEBUG   # Redirige HTTP → HTTPS automáticamente
+SECURE_HSTS_SECONDS         = 31536000 if not DEBUG else 0  # Fuerza HTTPS durante 1 año (HSTS)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
+SECURE_CONTENT_TYPE_NOSNIFF = not DEBUG   # Evita que el navegador adivine el MIME type
 X_FRAME_OPTIONS             = "DENY" # Previene clickjacking en iframes
 
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',')
@@ -174,10 +175,7 @@ SIMPLE_JWT = {
 
 # ── CORS ──────────────────────────────────────────────────
 # En producción, reemplaza con los dominios reales del frontend
-CORS_ALLOWED_ORIGINS = [
-    'https://frontend-jet-delta-45.vercel.app/', # Producción
-]
-
+CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'django-insecure-CHANGE-ME-in-production').split(',')
 # Patrones dinámicos (previews de Vercel)
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https://timecircle-[a-z0-9\-]+-xarzys-projects\.vercel\.app$",

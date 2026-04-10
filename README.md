@@ -112,6 +112,7 @@ El objetivo del proyecto es facilitar la colaboración entre usuarios, mejorar l
 
  - DEBUG (Bool): Ejecuta el servidor backend en modo debug.
  - ALLOWED_HOSTS (String[]): Lista de direcciones red que tienen acceso al servidor.
+ - CORS_ALLOWED_ORIGINS (String[]): Lista de direcciones red que CORS deja acceder.
  - DB_NAME (String): Base de datos a conectarse al servidor.
  - DB_USER (String): Usuario de la base de datos a conectarse al servidor.
  - DB_PASSWORD (String): Contraseña de la base de datos a conectarse al servidor.
