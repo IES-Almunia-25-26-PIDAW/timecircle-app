@@ -23,6 +23,7 @@ SECRET_KEY              = os.getenv('SECRET_KEY', 'django-insecure-CHANGE-ME-in-
 DEBUG                   = os.getenv('DEBUG', 'True') == 'True'
 
 # --- Cookies seguras ---
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 SESSION_COOKIE_SECURE = not DEBUG       # Cookie de sesión solo por HTTPS
 CSRF_COOKIE_SECURE    = not DEBUG       # Cookie CSRF solo por HTTPS
 SESSION_COOKIE_HTTPONLY = True     # JS no puede leer la cookie de sesión
@@ -174,7 +175,7 @@ SIMPLE_JWT = {
 
 # ── CORS ──────────────────────────────────────────────────
 # En producción, reemplaza con los dominios reales del frontend
-CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'django-insecure-CHANGE-ME-in-production')
+CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'django-insecure-CHANGE-ME-in-production').split(',')
 # Patrones dinámicos (previews de Vercel)
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https://timecircle-[a-z0-9\-]+-xarzys-projects\.vercel\.app$",
