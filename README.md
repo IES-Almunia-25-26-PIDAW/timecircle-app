@@ -115,24 +115,21 @@ El objetivo del proyecto es facilitar la colaboración entre usuarios, mejorar l
 
 Las variables se definen en un archivo `.env` en la raíz del proyecto. Están ordenadas de mayor a menor importancia.
 
-| Variable                | Tipo      | Descripción                                                               |
-|-------------------------|-----------|---------------------------------------------------------------------------|
-| `SECRET_KEY`            | String    | Llave secreta de Django/JWT. Mínimo 50 caracteres en producción.          |
-| `DEBUG`                 | Bool      | Activa el modo debug. Usar `False` en producción.                         |
-| `ALLOWED_HOSTS`         | String[]  | Hosts que pueden acceder al servidor (separados por coma).                |
-| `CORS_ALLOWED_ORIGINS`  | String[]  | Orígenes que CORS permite acceder (separados por coma).                   |
-| `DB_NAME`               | String    | Nombre de la base de datos PostgreSQL.                                    |
-| `DB_USER`               | String    | Usuario de la base de datos.                                              |
-| `DB_PASSWORD`           | String    | Contraseña de la base de datos.                                           |
-| `DB_HOST`               | String    | Host de la base de datos (`db` en Docker, `localhost` en local).          |
-| `DB_PORT`               | String    | Puerto de la base de datos (por defecto `5432`).                          |
-| `REDIS_HOST`            | String    | Host de Redis (`redis` en Docker, `localhost` en local).                  |
-| `REDIS_PORT`            | String    | Puerto de Redis (por defecto `6379`).                                     |
-| `NGINX_PORT`            | Int       | Puerto del host en el que Nginx estará disponible (por defecto `8080`).   |
-| `SECURE_SSL_REDIRECT`   | Bool      | Redirige HTTP → HTTPS. Solo `True` en producción.                         |
-| `SESSION_COOKIE_SECURE` | Bool      | Cookie de sesión solo por HTTPS. Solo `True` en producción.               |
-| `CSRF_COOKIE_SECURE`    | Bool      | Cookie CSRF solo por HTTPS. Solo `True` en producción.                    |
-| `SECURE_HSTS_SECONDS`   | Int       | Tiempo en segundos de HSTS. `0` en desarrollo, `31536000` en producción.  |
+| Variable                          | Tipo      | Descripción                                                                                                             |
+|-----------------------------------|-----------|-------------------------------------------------------------------------------------------------------------------------|
+| `SECRET_KEY`                      | String    | Llave secreta de Django/JWT. Mínimo 50 caracteres en producción.                                                        |
+| `DEBUG`                           | Bool      | Activa el modo debug. Usar `False` en producción.                                                                       |
+| `ALLOWED_HOSTS`                   | String[]  | Hosts que pueden acceder al servidor (separados por coma).                                                              |
+| `CORS_ALLOWED_ORIGINS`            | String[]  | Orígenes que CORS permite acceder (separados por coma).                                                                 |
+| `CORS_ALLOWED_ORIGIN_REGEXES`     | String[]  | Patrones regex de orígenes permitidos por CORS (separados por `\|`). Útil para URLs dinámicas como previews de Vercel.  |
+| `DB_NAME`                         | String    | Nombre de la base de datos PostgreSQL.                                                                                  |
+| `DB_USER`                         | String    | Usuario de la base de datos.                                                                                            |
+| `DB_PASSWORD`                     | String    | Contraseña de la base de datos.                                                                                         |
+| `DB_HOST`                         | String    | Host de la base de datos (`db` en Docker, `localhost` en local).                                                        |
+| `DB_PORT`                         | String    | Puerto de la base de datos (por defecto `5432`).                                                                        |
+| `REDIS_HOST`                      | String    | Host de Redis (`redis` en Docker, `localhost` en local).                                                                |
+| `NGINX_PORT`                      | Int       | Puerto del host en el que Nginx estará disponible (por defecto `8080`).                                                 |
+| `REDIS_PORT`                      | String    | Puerto de Redis (por defecto `6379`).                                                                                   |
 
 # ⚙️ Instalación y ejecución
 

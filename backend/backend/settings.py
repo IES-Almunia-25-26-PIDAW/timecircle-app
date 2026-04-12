@@ -175,10 +175,13 @@ SIMPLE_JWT = {
 
 # ── CORS ──────────────────────────────────────────────────
 # En producción, reemplaza con los dominios reales del frontend
-CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'django-insecure-CHANGE-ME-in-production').split(',')
+CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', '').split(',')
 # Patrones dinámicos (previews de Vercel)
+_raw_regexes = os.getenv('CORS_ALLOWED_ORIGIN_REGEXES', '')
 CORS_ALLOWED_ORIGIN_REGEXES = [
-    r"^https://timecircle-[a-z0-9\-]+-xarzys-projects\.vercel\.app$",
+    pattern.strip()
+    for pattern in _raw_regexes.split('|')
+    if pattern.strip()
 ]
 
 CORS_ALLOW_CREDENTIALS = True
