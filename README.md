@@ -23,7 +23,10 @@
 - [Variables de entorno](#Variables-de-entorno)
 - [⚙️ Instalación y ejecución](#⚙️-Instalación-y-ejecución)
   - [Docker](#Docker)
-  - [Backend](#Backend)
+    - [Servicios incluidos](#Servicios-incluidos)
+    - [docker-compose.yml](#docker-composeyml)
+    - [Paso a paso](#Paso-a-paso)
+  - [Backend](#Backend-1)
     - [1️⃣ Clonar el repositorio](#1️⃣-Clonar-el-repositorio)
     - [2️⃣ Configurar entorno virtual](#2️⃣-Configurar-entorno-virtual)
     - [3️⃣ Instalar dependencias](#3️⃣-Instalar-dependencias)
@@ -31,7 +34,7 @@
     - [5️⃣ Aplicar migraciones](#5️⃣-Aplicar-migraciones)
     - [6️⃣ Crear datos de prueba](#6️⃣-Crear-datos-de-prueba)
     - [7️⃣ Ejecutar servidor](#7️⃣-Ejecutar-servidor)
-  - [Frontend](#Frontend)
+  - [Frontend](#Frontend-1)
     - [1️⃣ Instalar dependencias](#1️⃣-Instalar-dependencias)
     - [2️⃣ Ejecutar servidor](#2️⃣-Ejecutar-servidor)
 - [🤝 Autor](#🤝-Autor)
@@ -91,7 +94,7 @@ El objetivo del proyecto es facilitar la colaboración entre usuarios, mejorar l
 ### Despliegue
 
 ![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
-![Firebase](https://img.shields.io/badge/Firebase-FFCA28?style=for-the-badge&logo=firebase&logoColor=black)
+![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)
 
 ### Versionado
 
@@ -110,26 +113,227 @@ El objetivo del proyecto es facilitar la colaboración entre usuarios, mejorar l
 
 # Variables de entorno
 
- - DEBUG (Bool): Ejecuta el servidor backend en modo debug.
- - ALLOWED_HOSTS (String[]): Lista de direcciones red que tienen acceso al servidor.
- - CORS_ALLOWED_ORIGINS (String[]): Lista de direcciones red que CORS deja acceder.
- - DB_NAME (String): Base de datos a conectarse al servidor.
- - DB_USER (String): Usuario de la base de datos a conectarse al servidor.
- - DB_PASSWORD (String): Contraseña de la base de datos a conectarse al servidor.
- - DB_HOST (String): Dirección de red de la base de datos.
- - DB_PORT (String): Puerto a usar para establecer la conexión hacia la base de datos.
- - SECRET_KEY (String): Llave secreta mayor de 32 caracteres para JWT.
+Las variables se definen en un archivo `.env` en la raíz del proyecto. Están ordenadas de mayor a menor importancia.
+
+| Variable                | Tipo      | Descripción                                                               |
+|-------------------------|-----------|---------------------------------------------------------------------------|
+| `SECRET_KEY`            | String    | Llave secreta de Django/JWT. Mínimo 50 caracteres en producción.          |
+| `DEBUG`                 | Bool      | Activa el modo debug. Usar `False` en producción.                         |
+| `ALLOWED_HOSTS`         | String[]  | Hosts que pueden acceder al servidor (separados por coma).                |
+| `CORS_ALLOWED_ORIGINS`  | String[]  | Orígenes que CORS permite acceder (separados por coma).                   |
+| `DB_NAME`               | String    | Nombre de la base de datos PostgreSQL.                                    |
+| `DB_USER`               | String    | Usuario de la base de datos.                                              |
+| `DB_PASSWORD`           | String    | Contraseña de la base de datos.                                           |
+| `DB_HOST`               | String    | Host de la base de datos (`db` en Docker, `localhost` en local).          |
+| `DB_PORT`               | String    | Puerto de la base de datos (por defecto `5432`).                          |
+| `REDIS_HOST`            | String    | Host de Redis (`redis` en Docker, `localhost` en local).                  |
+| `REDIS_PORT`            | String    | Puerto de Redis (por defecto `6379`).                                     |
+| `SECURE_SSL_REDIRECT`   | Bool      | Redirige HTTP → HTTPS. Solo `True` en producción.                         |
+| `SESSION_COOKIE_SECURE` | Bool      | Cookie de sesión solo por HTTPS. Solo `True` en producción.               |
+| `CSRF_COOKIE_SECURE`    | Bool      | Cookie CSRF solo por HTTPS. Solo `True` en producción.                    |
+| `SECURE_HSTS_SECONDS`   | Int       | Tiempo en segundos de HSTS. `0` en desarrollo, `31536000` en producción.  |
 
 # ⚙️ Instalación y ejecución
 
 ## Docker
 
-Simplemente utilice las variables de entorno disponibles para crear un .env en la raíz del proyecto.
-Cuando este todo listo, ejecute el composer en la raíz del proyecto.
+> [!TIP]
+> Esta es la forma **recomendada** de ejecutar el proyecto. Docker garantiza portabilidad, aislamiento y consistencia entre entornos.
+
+### Servicios incluidos
+
+El `docker-compose.yml` levanta los siguientes contenedores:
+
+| Servicio    | Imagen            | Puerto  | Descripción                         |
+|-------------|-------------------|---------|-------------------------------------|
+| `db`        | `postgres:alpine` | `5432`  | Base de datos PostgreSQL            |
+| `redis`     | `redis:7-alpine`  | `6379`  | Caché y broker de mensajes          |
+| `backend`   | Dockerfile local  | `8000`  | API Django REST                     |
+| `frontend`  | Dockerfile local  | `5173`  | App React (Vite)                    |
+| `nginx`     | `nginx:alpine`    | `80`    | Proxy inverso y archivos estáticos  |
+| `adminer`   | `adminer`         | `8080`  | Gestor web de base de datos         |
+
+> [!NOTE]
+> El backend y la base de datos incluyen **healthchecks** automáticos. El backend no arrancará hasta que PostgreSQL y Redis estén listos.
+
+### docker-compose.yml
+
+```yaml
+services:
+  db:
+    image: postgres:alpine
+    container_name: timecircle_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - timecircle_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: timecircle_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - timecircle_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: timecircle_backend
+    restart: unless-stopped
+    volumes:
+      - ./backend:/app
+      - static_files:/app/static
+    env_file:
+      - ./.env
+    environment:
+      - SECURE_SSL_REDIRECT=False
+      - SESSION_COOKIE_SECURE=False
+      - CSRF_COOKIE_SECURE=False
+      - SECURE_HSTS_SECONDS=0
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - timecircle_net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: timecircle_frontend
+    restart: unless-stopped
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    networks:
+      - timecircle_net
+
+  nginx:
+    image: nginx:alpine
+    container_name: timecircle_nginx
+    restart: unless-stopped
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - static_files:/app/static:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - timecircle_net
+
+volumes:
+  postgres_data:
+  static_files:
+
+networks:
+  timecircle_net:
+    driver: bridge
+```
+
+### Paso a paso
+
+**1️⃣ Clonar el repositorio**
 
 ```bash
-docker compose up
+git clone https://github.com/IES-Almunia-25-26-PIDAW/timecircle-app
+cd timecircle-app
 ```
+
+**2️⃣ Crear el archivo `.env`**
+
+Copia el archivo de ejemplo y rellena tus valores:
+
+```bash
+cp .env.example .env
+```
+
+El `.env` debe quedar en la **raíz del proyecto** (junto al `docker-compose.yml`):
+
+```
+timecircle-app/
+├── .env               ← aquí
+├── docker-compose.yml
+├── backend/
+└── frontend/
+```
+
+**3️⃣ Construir y levantar todos los servicios**
+
+```bash
+docker compose up --build
+```
+
+Para ejecutarlo en segundo plano (detached):
+
+```bash
+docker compose up --build -d
+```
+
+**4️⃣ Aplicar migraciones y cargar datos de prueba**
+
+En una terminal separada (con los contenedores ya en marcha):
+
+```bash
+docker compose exec backend python manage.py migrate
+docker compose exec backend python manage.py seed_categories
+docker compose exec backend python manage.py seed_demo_data
+```
+
+**5️⃣ Acceder a la aplicación**
+
+| URL                               | Descripción                       |
+|-----------------------------------|-----------------------------------|
+| `http://localhost`                | Aplicación principal (vía Nginx)  |
+| `http://localhost:5173`           | Frontend React (directo)          |
+| `http://localhost:8000/api/`      | API REST Django                   |
+| `http://localhost:8000/api/docs/` | Documentación Swagger             |
+
+**6️⃣ Parar los servicios**
+
+```bash
+docker compose down
+```
+
+Para también eliminar los volúmenes (base de datos incluida):
+
+```bash
+docker compose down -v
+```
+
+> [!WARNING]
+> El flag `-v` **borra todos los datos** de PostgreSQL. Úsalo solo si quieres un entorno limpio.
+
+---
 
 ## Backend
 
@@ -153,6 +357,7 @@ source venv/bin/activate     # Linux / Mac
 ```bash
 pip install -r backend/requirements.txt
 ```
+
 ### 4️⃣ Configurar .env
 
 Crearás un .env en la raíz del proyecto con los datos por ejemplo del .env.example.
@@ -172,15 +377,23 @@ python backend/manage.py seed_demo_data
 
 ### 7️⃣ Ejecutar servidor
 
+Para desarrollo:
+
 ```bash
 python backend/manage.py runserver
+```
+
+Para producción:
+
+```bash
+gunicorn backend.wsgi:application --bind 0.0.0.0:8000
 ```
 
 > [!TIP]
 > Puedes ejecutar los tests con este comando:
 >
 > ```bash
-> python backend/manage.py test
+> pytest --cov=. --cov-report=term-missing --cov-fail-under=80 --cov-config=.coveragerc
 > ```
 
 > [!WARNING]
