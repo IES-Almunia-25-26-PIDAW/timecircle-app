@@ -15,7 +15,7 @@ import os
 from dotenv import load_dotenv
 
 # ── Rutas base ────────────────────────────────────────────
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
 load_dotenv(BASE_DIR / ".env", override=True)
 
 # ── Seguridad ─────────────────────────────────────────────

@@ -128,6 +128,7 @@ Las variables se definen en un archivo `.env` en la raíz del proyecto. Están o
 | `DB_PORT`               | String    | Puerto de la base de datos (por defecto `5432`).                          |
 | `REDIS_HOST`            | String    | Host de Redis (`redis` en Docker, `localhost` en local).                  |
 | `REDIS_PORT`            | String    | Puerto de Redis (por defecto `6379`).                                     |
+| `NGINX_PORT`            | Int       | Puerto del host en el que Nginx estará disponible (por defecto `8080`).   |
 | `SECURE_SSL_REDIRECT`   | Bool      | Redirige HTTP → HTTPS. Solo `True` en producción.                         |
 | `SESSION_COOKIE_SECURE` | Bool      | Cookie de sesión solo por HTTPS. Solo `True` en producción.               |
 | `CSRF_COOKIE_SECURE`    | Bool      | Cookie CSRF solo por HTTPS. Solo `True` en producción.                    |
@@ -144,17 +145,17 @@ Las variables se definen en un archivo `.env` en la raíz del proyecto. Están o
 
 El `docker-compose.yml` levanta los siguientes contenedores:
 
-| Servicio    | Imagen            | Puerto  | Descripción                         |
-|-------------|-------------------|---------|-------------------------------------|
-| `db`        | `postgres:alpine` | `5432`  | Base de datos PostgreSQL            |
-| `redis`     | `redis:7-alpine`  | `6379`  | Caché y broker de mensajes          |
-| `backend`   | Dockerfile local  | `8000`  | API Django REST                     |
-| `frontend`  | Dockerfile local  | `5173`  | App React (Vite)                    |
-| `nginx`     | `nginx:alpine`    | `80`    | Proxy inverso y archivos estáticos  |
-| `adminer`   | `adminer`         | `8080`  | Gestor web de base de datos         |
-
+| Servicio    | Imagen            | Puerto en host           | Descripción                         |
+|-------------|-------------------|--------------------------|-------------------------------------|
+| `db`        | `postgres:alpine` | —                        | Base de datos PostgreSQL (interno)  |
+| `redis`     | `redis:7-alpine`  | —                        | Caché y broker de mensajes (interno)|
+| `backend`   | Dockerfile local  | —                        | API Django REST (interno)           |
+| `frontend`  | Dockerfile local  | —                        | App React / Vite (interno)          |
+| `nginx`     | `nginx:alpine`    | `NGINX_PORT` (def. 8080) | Proxy inverso · punto de entrada    |
 > [!NOTE]
 > El backend y la base de datos incluyen **healthchecks** automáticos. El backend no arrancará hasta que PostgreSQL y Redis estén listos.
+> [!NOTE]
+> Solo Nginx exponen puertos al host. El backend y el frontend se comunican exclusivamente a través de la red interna `timecircle_net`, lo que reduce la superficie de ataque y evita conflictos con servicios como Apache o Nginx ya instalados en la máquina.
 
 ### docker-compose.yml
 
@@ -170,8 +171,6 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
     networks:
       - timecircle_net
     healthcheck:
@@ -184,8 +183,6 @@ services:
     image: redis:7-alpine
     container_name: timecircle_redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     networks:
       - timecircle_net
     healthcheck:
@@ -210,8 +207,6 @@ services:
       - SESSION_COOKIE_SECURE=False
       - CSRF_COOKIE_SECURE=False
       - SECURE_HSTS_SECONDS=0
-    ports:
-      - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -229,8 +224,6 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules
-    ports:
-      - "5173:5173"
     depends_on:
       - backend
     networks:
@@ -244,7 +237,7 @@ services:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
       - static_files:/app/static:ro
     ports:
-      - "80:80"
+      - "${NGINX_PORT:-8080}:80"
     depends_on:
       - frontend
       - backend
@@ -287,6 +280,12 @@ timecircle-app/
 └── frontend/
 ```
 
+> [!TIP]
+> Para generar un `SECRET_KEY` válido ejecuta:
+> ```bash
+> python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+> ```
+
 **3️⃣ Construir y levantar todos los servicios**
 
 ```bash
@@ -311,12 +310,14 @@ docker compose exec backend python manage.py seed_demo_data
 
 **5️⃣ Acceder a la aplicación**
 
-| URL                               | Descripción                       |
-|-----------------------------------|-----------------------------------|
-| `http://localhost`                | Aplicación principal (vía Nginx)  |
-| `http://localhost:5173`           | Frontend React (directo)          |
-| `http://localhost:8000/api/`      | API REST Django                   |
-| `http://localhost:8000/api/docs/` | Documentación Swagger             |
+| URL                                        | Descripción                        |
+|--------------------------------------------|------------------------------------|
+| `http://localhost:8080`                    | Aplicación principal (vía Nginx)   |
+| `http://localhost:8080/api/`               | API REST Django                    |
+| `http://localhost:8080/api/docs/`          | Documentación Swagger              |
+
+> [!NOTE]
+> El puerto `8080` es el valor por defecto. Si ya está en uso en tu máquina, cámbialo en el `.env` con `NGINX_PORT` antes de arrancar.
 
 **6️⃣ Parar los servicios**
 
@@ -408,7 +409,19 @@ cd frontend/
 npm install
 ```
 
-### 2️⃣ Ejecutar servidor
+### 2️⃣ Configurar .env
+
+Crea un archivo `.env` dentro de `frontend/` con la URL de la API:
+
+```dotenv
+VITE_API_URL=http://localhost:8080
+```
+
+> [!NOTE]
+> Si cambiaste `NGINX_PORT` en el `.env` raíz, actualiza también este valor para que coincidan.
+
+
+### 3️⃣ Ejecutar servidor
 
 ```bash
 npm run dev
