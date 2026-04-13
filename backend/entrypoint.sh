@@ -10,6 +10,13 @@ echo "DB ready."
 echo "Collecting static files..."
 python manage.py collectstatic --no-input
 
+echo "DEBUG mode: $DEBUG"
+
+if [ "$DEBUG" = "True" ] || [ "$DEBUG" = "1" ]; then
+  echo "Running database migrations..."
+  python manage.py migrate --no-input
+fi
+
 echo "Starting server..."
 
 gunicorn backend.wsgi:application \

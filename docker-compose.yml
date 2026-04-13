@@ -9,8 +9,6 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
     networks:
       - timecircle_net
     healthcheck:
@@ -23,8 +21,6 @@ services:
     image: redis:7-alpine
     container_name: timecircle_redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     networks:
       - timecircle_net
     healthcheck:
@@ -44,13 +40,6 @@ services:
       - static_files:/app/static
     env_file:
       - ./.env
-    environment:
-      - SECURE_SSL_REDIRECT=False
-      - SESSION_COOKIE_SECURE=False
-      - CSRF_COOKIE_SECURE=False
-      - SECURE_HSTS_SECONDS=0
-    ports:
-      - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -68,8 +57,6 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules
-    ports:
-      - "5173:5173"
     depends_on:
       - backend
     networks:
@@ -83,13 +70,13 @@ services:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
       - static_files:/app/static:ro
     ports:
-      - "80:80"
+      - "${NGINX_PORT:-8080}:80"
     depends_on:
       - frontend
       - backend
     networks:
       - timecircle_net
-      
+
 volumes:
   postgres_data:
   static_files:
