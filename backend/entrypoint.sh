@@ -12,10 +12,8 @@ python manage.py collectstatic --no-input
 
 echo "DEBUG mode: $DEBUG"
 
-if [ "$DEBUG" = "True" ] || [ "$DEBUG" = "1" ]; then
-  echo "Running database migrations..."
-  python manage.py migrate --no-input
-fi
+echo "Running database migrations..."
+python manage.py migrate --no-input
 
 echo "Starting server..."
 
