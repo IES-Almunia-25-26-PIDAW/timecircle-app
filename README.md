@@ -151,6 +151,7 @@ El `docker-compose.yml` levanta los siguientes contenedores:
 | `nginx`     | `nginx:alpine`    | `NGINX_PORT` (def. 8080) | Proxy inverso · punto de entrada    |
 > [!NOTE]
 > El backend y la base de datos incluyen **healthchecks** automáticos. El backend no arrancará hasta que PostgreSQL y Redis estén listos.
+
 > [!NOTE]
 > Solo Nginx exponen puertos al host. El backend y el frontend se comunican exclusivamente a través de la red interna `timecircle_net`, lo que reduce la superficie de ataque y evita conflictos con servicios como Apache o Nginx ya instalados en la máquina.
 
