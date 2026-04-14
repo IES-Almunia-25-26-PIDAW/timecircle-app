@@ -128,6 +128,8 @@ interface AppContextType {
   startConversation: (otherUserId: string) => Promise<string>;
   markConversationRead: (conversationId: string) => void;
   loadConversationMessages: (conversationId: string) => Promise<void>;
+  refreshConversationMessages: (conversationId: string) => Promise<void>;
+  refreshUnread: () => Promise<void>;
 
   // Review Actions
   addReview: (review: Omit<Review, 'id' | 'createdAt'>) => void;
@@ -510,6 +512,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, []);
 
+  const refreshConversationMessages = useCallback(async (conversationId: string) => {
+  try {
+    const conv = await apiGetConversation(conversationId);
+    const msgs = (conv?.messages || []).map((m: any) => mapMessage(m, conversationId));
+    setMessages(prev => {
+      const existing = prev.filter(m => m.conversationId !== conversationId);
+      // Merge: keep existing IDs to avoid flicker, add new ones
+      const existingIds = new Set(existing.map(m => m.id));
+      const newMsgs = msgs.filter((m: any) => !existingIds.has(m.id));
+      // Also update read status on existing
+      const updated = existing.map(m => {
+        const fresh = msgs.find((fm: any) => fm.id === m.id);
+        return fresh ? { ...m, read: fresh.read } : m;
+      });
+      return [...updated, ...newMsgs];
+    });
+    // Update conversation last message / unread
+    setConversations(prev => prev.map(c => {
+      if (c.id !== conversationId) return c;
+      const last = conv?.messages?.[conv.messages.length - 1];
+      return {
+        ...c,
+        lastMessage: last?.content ?? c.lastMessage,
+        lastTimestamp: last?.timestamp ?? c.lastTimestamp,
+        // Unread = msgs from others not yet read
+        unreadCount: 0, // will be handled by markRead on open
+      };
+    }));
+  } catch (e) {
+    // silently ignore network errors during polling
+  }
+}, []);
+ 
+const refreshUnread = useCallback(async () => {
+  if (!currentUser) return;
+  try {
+    const data = await apiGetConversations();
+    const list = data?.results || data || [];
+    setConversations(list.map(mapConversation));
+  } catch (e) {
+    // silently ignore
+  }
+}, [currentUser]);
+
   // ── REVIEW ACTIONS ────────────────────────────────────────
 
   const addReview = useCallback(async (review: Omit<Review, 'id' | 'createdAt'>) => {
@@ -603,7 +649,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       loading, apiCategoryMap,
       addService, updateService, deleteService,
       createTrade, updateTrade,
-      sendMessage, startConversation, markConversationRead, loadConversationMessages,
+      sendMessage, startConversation, markConversationRead, loadConversationMessages, refreshConversationMessages, refreshUnread,
       addReview,
       adminDeleteUser, adminDeleteService, adminUpdateUser,
       getUserById, getServiceById, getTradeById,
