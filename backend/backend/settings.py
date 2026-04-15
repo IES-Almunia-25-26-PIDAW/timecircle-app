@@ -19,8 +19,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 load_dotenv(BASE_DIR / ".env", override=True)
 
 # ── Seguridad ─────────────────────────────────────────────
-SECRET_KEY              = os.getenv('SECRET_KEY', 'django-insecure-CHANGE-ME-in-production')
+_DEFAULT_SECRET_KEY     = 'django-insecure-CHANGE-ME-in-production'
+SECRET_KEY              = os.getenv('SECRET_KEY', _DEFAULT_SECRET_KEY)
 DEBUG                   = os.getenv('DEBUG', 'True') == 'True'
+
+if not DEBUG and (not SECRET_KEY or SECRET_KEY == _DEFAULT_SECRET_KEY):
+    raise ValueError(
+        "Insecure configuration: SECRET_KEY must be set to a unique, non-default value when DEBUG is False."
+    )
 
 # --- Cookies seguras ---
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
