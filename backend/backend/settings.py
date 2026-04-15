@@ -181,7 +181,22 @@ SIMPLE_JWT = {
 
 # ── CORS ──────────────────────────────────────────────────
 # En producción, reemplaza con los dominios reales del frontend
-CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', '').split(',')
+_cors_allowed_origins_env = os.getenv('CORS_ALLOWED_ORIGINS')
+if _cors_allowed_origins_env:
+    CORS_ALLOWED_ORIGINS = [
+        origin.strip()
+        for origin in _cors_allowed_origins_env.split(',')
+        if origin.strip()
+    ]
+elif DEBUG:
+    CORS_ALLOWED_ORIGINS = [
+        'http://localhost:3000',
+        'http://localhost:5173',
+    ]
+else:
+    raise ValueError(
+        "Insecure configuration: CORS_ALLOWED_ORIGINS must be set in production."
+    )
 # Patrones dinámicos (previews de Vercel)
 _raw_regexes = os.getenv('CORS_ALLOWED_ORIGIN_REGEXES', '')
 CORS_ALLOWED_ORIGIN_REGEXES = [
