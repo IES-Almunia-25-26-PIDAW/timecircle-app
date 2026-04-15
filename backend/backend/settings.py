@@ -44,10 +44,6 @@ X_FRAME_OPTIONS             = "DENY" # Previene clickjacking en iframes
 
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',')
 
-# ── Redis ─────────────────────────────────────────────────
-REDIS_HOST = os.getenv("REDIS_HOST", "redis")
-REDIS_PORT = os.getenv("REDIS_PORT", "6379")
-
 # ── Aplicaciones ──────────────────────────────────────────
 INSTALLED_APPS = [
     'django.contrib.admin',
