@@ -44,10 +44,6 @@ X_FRAME_OPTIONS             = "DENY" # Previene clickjacking en iframes
 
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',')
 
-# ── Redis ─────────────────────────────────────────────────
-REDIS_HOST = os.getenv("REDIS_HOST", "redis")
-REDIS_PORT = os.getenv("REDIS_PORT", "6379")
-
 # ── Aplicaciones ──────────────────────────────────────────
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -131,7 +127,11 @@ USE_TZ        = True
 # ── Archivos estáticos y media ────────────────────────────
 STATIC_URL  = 'static/'
 STATIC_ROOT = BASE_DIR / 'static'
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+STORAGES = {
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+    },
+}
 
 MEDIA_URL  = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
@@ -181,7 +181,22 @@ SIMPLE_JWT = {
 
 # ── CORS ──────────────────────────────────────────────────
 # En producción, reemplaza con los dominios reales del frontend
-CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', '').split(',')
+_cors_allowed_origins_env = os.getenv('CORS_ALLOWED_ORIGINS')
+if _cors_allowed_origins_env:
+    CORS_ALLOWED_ORIGINS = [
+        origin.strip()
+        for origin in _cors_allowed_origins_env.split(',')
+        if origin.strip()
+    ]
+elif DEBUG:
+    CORS_ALLOWED_ORIGINS = [
+        'http://localhost:3000',
+        'http://localhost:5173',
+    ]
+else:
+    raise ValueError(
+        "Insecure configuration: CORS_ALLOWED_ORIGINS must be set in production."
+    )
 # Patrones dinámicos (previews de Vercel)
 _raw_regexes = os.getenv('CORS_ALLOWED_ORIGIN_REGEXES', '')
 CORS_ALLOWED_ORIGIN_REGEXES = [
