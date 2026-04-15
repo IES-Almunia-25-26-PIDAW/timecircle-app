@@ -42,7 +42,13 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
 SECURE_CONTENT_TYPE_NOSNIFF = not DEBUG   # Evita que el navegador adivine el MIME type
 X_FRAME_OPTIONS             = "DENY" # Previene clickjacking en iframes
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',')
+_raw_allowed_hosts = os.getenv('ALLOWED_HOSTS', '')
+ALLOWED_HOSTS = [host.strip() for host in _raw_allowed_hosts.split(',') if host.strip()]
+
+if not DEBUG and not ALLOWED_HOSTS:
+    raise ValueError(
+        "Insecure configuration: ALLOWED_HOSTS must contain at least one valid host when DEBUG is False."
+    )
 
 # ── Aplicaciones ──────────────────────────────────────────
 INSTALLED_APPS = [
@@ -163,7 +169,7 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_THROTTLE_RATES': {
         'anon': '100/day',
-        'user': '1000/day',
+        'user': '5000/day',
     },
 }
 
