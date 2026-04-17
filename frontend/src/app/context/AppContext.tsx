@@ -17,6 +17,8 @@ import {
   apiAdminGetUsers, apiAdminUpdateUser, apiAdminDeleteUser,
 } from '../api/endpoints';
 import { clearTokens, getTokens } from '../api/client';
+import { createWS } from '../api/wsClient';
+import { apiGetWSPresenceHandshake } from '../api/endpoints';
 
 // ── MAPPERS API → UI ─────────────────────────────────────────
 
@@ -149,6 +151,9 @@ interface AppContextType {
   getUserConversations: (userId: string) => Conversation[];
   totalUnreadMessages: number;
 
+  // WebSocket client (presence)
+  getWsClient: () => any;
+
   // Refresh
   refreshServices: () => Promise<void>;
   refreshTrades: () => Promise<void>;
@@ -167,6 +172,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [loading, setLoading] = useState(true);
   const [apiCategoryMap, setApiCategoryMap] = useState<Record<string, number>>({});
   const loadedConvs = useRef<Set<string>>(new Set());
+  const wsRef = useRef<any>(null);
 
   // ── FETCH APP DATA ────────────────────────────────────────
 
@@ -266,6 +272,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const user = mapUser(meData);
           setCurrentUser(user);
           await loadInitialData(user);
+          // open websocket for presence
+          try {
+            const hs = await apiGetWSPresenceHandshake();
+            if (hs?.ws_key) {
+              const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+              const host = window.location.host;
+              const url = `${proto}://${host}/ws/presence/?ws_key=${encodeURIComponent(hs.ws_key)}`;
+              wsRef.current = createWS(url, (msg: any) => {
+                if (msg?.type === 'presence') {
+                  setUsers(prev => prev.map(u => (u.id === String(msg.user_id) ? { ...u, presenceStatus: msg.status, isTyping: msg.typing } : u)));
+                }
+              });
+            }
+          } catch (e) {
+            // ignore ws errors
+          }
         }
       } catch {
         clearTokens();
@@ -286,6 +308,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setCurrentUser(user);
       setLoading(true);
       await loadInitialData(user);
+      try {
+        const hs = await apiGetWSPresenceHandshake();
+        if (hs?.ws_key) {
+          const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+          const host = window.location.host;
+          const url = `${proto}://${host}/ws/presence/?ws_key=${encodeURIComponent(hs.ws_key)}`;
+          wsRef.current = createWS(url, (msg: any) => {
+            if (msg?.type === 'presence') {
+              setUsers(prev => prev.map(u => (u.id === String(msg.user_id) ? { ...u, presenceStatus: msg.status, isTyping: msg.typing } : u)));
+            }
+          });
+        }
+      } catch (e) {
+        // ignore
+      }
       setLoading(false);
       return true;
     } catch (e) {
@@ -296,6 +333,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const logout = useCallback(() => {
     apiLogout();
+    try { wsRef.current?.close(); } catch (e) {}
     setCurrentUser(null);
     setUsers([]);
     setServices([]);
@@ -656,6 +694,7 @@ const refreshUnread = useCallback(async () => {
       getUserReviews, getUserTrades, getConversationMessages, getUserConversations,
       totalUnreadMessages,
       refreshServices, refreshTrades,
+      getWsClient: () => wsRef.current,
     }}>
       {children}
     </AppContext.Provider>

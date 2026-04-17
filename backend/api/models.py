@@ -1,5 +1,6 @@
 from django.db import models
 from django.db.models import Q, Avg
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth.models import AbstractUser
 import decimal
@@ -347,3 +348,62 @@ class ContactMessage(models.Model):
 
     def __str__(self):
         return f'[{self.get_reason_display()}] {self.name} <{self.email}>'
+
+# ─────────────────────────────────────────────
+#  PRESENCIA DE USUARIO (ONLINE / AUSENTE)
+# ─────────────────────────────────────────────
+ 
+class UserPresence(models.Model):
+    """
+    Rastrea el estado en tiempo real de cada usuario.
+ 
+    El frontend envía un heartbeat cada 30 s con el estado ('online' | 'away').
+    Si no llega ningún heartbeat en 5 min, el servidor lo considera 'offline'.
+    El campo typing_in/typing_at registra cuándo el usuario está escribiendo
+    en una conversación concreta; caduca automáticamente a los 5 s.
+    """
+ 
+    class Status(models.TextChoices):
+        ONLINE = 'online', _('En línea')
+        AWAY   = 'away',   _('Ausente')
+ 
+    user        = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name='presence'
+    )
+    status      = models.CharField(
+        max_length=10, choices=Status.choices, default=Status.ONLINE
+    )
+    last_active = models.DateTimeField(default=timezone.now)   # actualizado por heartbeat
+    typing_in   = models.ForeignKey(
+        'Conversation', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+'
+    )
+    typing_at   = models.DateTimeField(null=True, blank=True)  # última pulsación de tecla
+ 
+    class Meta:
+        db_table = 'user_presence'
+        verbose_name = _('Presencia de usuario')
+        verbose_name_plural = _('Presencias de usuarios')
+ 
+    def __str__(self):
+        return f'{self.user.username} · {self.get_status_display()}'
+ 
+    @property
+    def effective_status(self) -> str:
+        """
+        Si el último heartbeat fue hace más de 5 min → offline.
+        En caso contrario devuelve el status que el cliente envió.
+        """
+        elapsed = (timezone.now() - self.last_active).total_seconds()
+        return 'offline' if elapsed > 5 * 60 else self.status
+ 
+    @property
+    def typing_conversation_id(self):
+        """
+        Devuelve el ID de la conversación en la que el usuario está escribiendo,
+        pero solo si la señal de typing llegó hace menos de 5 segundos.
+        """
+        if not self.typing_at or not self.typing_in_id:
+            return None
+        elapsed = (timezone.now() - self.typing_at).total_seconds()
+        return self.typing_in_id if elapsed < 5 else None

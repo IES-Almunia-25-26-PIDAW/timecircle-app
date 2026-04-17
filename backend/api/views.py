@@ -16,10 +16,13 @@ from drf_spectacular.types import OpenApiTypes
 from django.db.models import Q, Avg, Sum, Count
 from django.utils import timezone
 from datetime import timedelta
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
+from django.core import signing
 
 from .models import (
     User, Category, Tag, Skill, Service, Trade, Transaction,
-    Conversation, Message, Review, ContactMessage
+    Conversation, Message, Review, ContactMessage, UserPresence
 )
 from .serializers import (
     UserRegistrationSerializer, UserSerializer, UserUpdateSerializer, UserRankingSerializer,
@@ -154,12 +157,55 @@ class LogoutView(generics.GenericAPIView):
         try:
             token = RefreshToken(request.data.get('refresh'))
             token.blacklist()
+            # Marcar presencia como offline inmediatamente y limpiar typing
+            try:
+                presence = UserPresence.objects.filter(user=request.user).first()
+                if presence:
+                    # Forzar estado offline usando last_active > 5min
+                    presence.last_active = timezone.now() - timedelta(minutes=10)
+                    presence.typing_in = None
+                    presence.typing_at = None
+                    presence.save(update_fields=['last_active', 'typing_in', 'typing_at'])
+
+                    # Notificar a los grupos de conversación relevantes
+                    channel_layer = get_channel_layer()
+                    conv_ids = Conversation.objects.filter(participants=request.user).values_list('id', flat=True)
+                    for cid in conv_ids:
+                        group_name = f'conversation_{cid}'
+                        async_to_sync(channel_layer.group_send)(
+                            group_name,
+                            {
+                                'type': 'presence.message',
+                                'user_id': request.user.id,
+                                'status': 'offline',
+                                'typing': False,
+                            }
+                        )
+            except Exception:
+                # No queremos que la limpieza de presencia falle el logout
+                pass
+
             return Response({'detail': 'Sesión cerrada correctamente.'})
         except Exception:
             return Response(
                 {'detail': 'Token inválido o expirado.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+
+@extend_schema(tags=['Auth'])
+class WSPresenceHandshakeView(generics.GenericAPIView):
+    """Devuelve un `ws_key` firmado de corta duración para autenticación WS.
+
+    El cliente obtiene este token via REST (POST) y lo pasa como query param
+    al abrir el socket: `ws://.../ws/presence/?ws_key=...`.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        # Firma un payload con el user_id; el consumer validará con max_age
+        token = signing.dumps({'user_id': request.user.id})
+        return Response({'ws_key': token})
 
 
 # ══════════════════════════════════════════════════════════
@@ -831,3 +877,142 @@ class ContactView(generics.CreateAPIView):
             {'detail': 'Mensaje recibido. Te responderemos en 2–5 días hábiles.'},
             status=status.HTTP_201_CREATED,
         )
+
+# ══════════════════════════════════════════════════════════
+#  PRESENCIA EN TIEMPO REAL
+# ══════════════════════════════════════════════════════════
+
+@extend_schema(tags=['Presence'])
+class PresenceHeartbeatView(generics.GenericAPIView):
+    """
+    Heartbeat de presencia.
+    El cliente llama a este endpoint cada 30 s con {'status': 'online'|'away'}.
+    Si no recibe heartbeat en 5 min el servidor considera al usuario 'offline'.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary='Enviar heartbeat de presencia',
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {
+                    'status': {'type': 'string', 'enum': ['online', 'away']},
+                },
+            }
+        },
+        responses={200: OpenApiResponse(description='OK')},
+    )
+    def post(self, request):
+        raw_status = request.data.get('status', 'online')
+        if raw_status not in ['online', 'away']:
+            raw_status = 'online'
+
+        UserPresence.objects.update_or_create(
+            user=request.user,
+            defaults={
+                'status':      raw_status,
+                'last_active': timezone.now(),
+            },
+        )
+        return Response({'ok': True})
+
+@extend_schema(tags=['Presence'])
+class PresenceTypingView(generics.GenericAPIView):
+    """
+    Actualiza el estado de escritura del usuario autenticado
+    en una conversación concreta.
+    La señal caduca automáticamente en el servidor a los 5 s.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary='Actualizar estado de escritura',
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {
+                    'conversation_id': {'type': 'integer'},
+                    'is_typing':       {'type': 'boolean'},
+                },
+                'required': ['conversation_id', 'is_typing'],
+            }
+        },
+        responses={200: OpenApiResponse(description='OK')},
+    )
+    def post(self, request):
+        conv_id   = request.data.get('conversation_id')
+        is_typing = bool(request.data.get('is_typing', False))
+
+        conv = None
+        if is_typing and conv_id:
+            try:
+                conv = Conversation.objects.get(
+                    id=conv_id, participants=request.user
+                )
+            except Conversation.DoesNotExist:
+                return Response(
+                    {'detail': 'Conversación no encontrada.'},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+        UserPresence.objects.update_or_create(
+            user=request.user,
+            defaults={
+                'typing_in': conv,
+                'typing_at': timezone.now() if is_typing else None,
+            },
+        )
+        return Response({'is_typing': is_typing})
+
+
+@extend_schema(tags=['Presence'])
+class PresenceStatusView(generics.GenericAPIView):
+    """
+    Devuelve el estado de presencia de un usuario concreto y
+    si está escribiendo en la conversación indicada.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary='Consultar presencia de un usuario',
+        parameters=[
+            OpenApiParameter('user_id',         OpenApiTypes.INT, description='ID del usuario'),
+            OpenApiParameter('conversation_id',  OpenApiTypes.INT, description='ID de la conversación'),
+        ],
+        responses={
+            200: OpenApiResponse(
+                description='Estado de presencia',
+                response={
+                    'type': 'object',
+                    'properties': {
+                        'status':    {'type': 'string', 'enum': ['online', 'away', 'offline']},
+                        'is_typing': {'type': 'boolean'},
+                    },
+                },
+            )
+        },
+    )
+    def get(self, request):
+        user_id = request.query_params.get('user_id')
+        conv_id = request.query_params.get('conversation_id')
+
+        if not user_id:
+            return Response(
+                {'detail': 'user_id es obligatorio.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            presence = UserPresence.objects.get(user_id=user_id)
+        except UserPresence.DoesNotExist:
+            return Response({'status': 'offline', 'is_typing': False})
+
+        effective = presence.effective_status
+
+        is_typing = False
+        if conv_id:
+            typing_conv_id = presence.typing_conversation_id
+            is_typing = typing_conv_id is not None and str(typing_conv_id) == str(conv_id)
+
+        return Response({'status': effective, 'is_typing': is_typing})

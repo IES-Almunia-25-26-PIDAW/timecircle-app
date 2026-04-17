@@ -15,11 +15,12 @@ echo "DEBUG mode: $DEBUG"
 echo "Running database migrations..."
 python manage.py migrate --no-input
 
-echo "Starting server..."
+echo "Starting ASGI server (channels enabled)..."
 
-gunicorn backend.wsgi:application \
+gunicorn backend.asgi:application \
   --bind 0.0.0.0:8000 \
   --workers 2 \
+  --worker-class uvicorn.workers.UvicornWorker \
   --timeout 60 \
   --access-logfile - \
   --error-logfile -
