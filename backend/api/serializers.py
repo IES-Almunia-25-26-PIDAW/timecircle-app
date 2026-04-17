@@ -1,10 +1,11 @@
+import decimal
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
 from django.utils import timezone
 
 from .models import (
-    User, Category, Tag, Skill, UserSkill, Service, Trade, 
+    User, Category, Tag, Skill, UserSkill, Service, Trade,
     Transaction, Conversation, Message, Review, ContactMessage
 )
 
@@ -71,7 +72,12 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data: dict) -> User:
-        user = User.objects.create_user(credits=10, **validated_data)
+        # Los nuevos usuarios empiezan con 0 créditos.
+        # Ganan créditos completando acciones de onboarding:
+        #   +0,5 cr al añadir su primera habilidad
+        #   +0,5 cr al publicar su primer servicio
+        #   +1,0 cr al completar su primer intercambio como proveedor
+        user = User.objects.create_user(credits=decimal.Decimal('0.0'), **validated_data)
         return user
 
 
@@ -355,35 +361,65 @@ class TradeStatusUpdateSerializer(serializers.ModelSerializer):
         return instance
 
     def _transfer_credits(self, trade: Trade) -> None:
-        """Transfiere créditos del requester al offerer y actualiza estadísticas."""
+        """
+        Transfiere créditos del requester al offerer y actualiza estadísticas.
+        También aplica el bono de onboarding (+1 cr) al offerer si este es
+        su primer intercambio completado como proveedor.
+        """
         offerer   = trade.offerer
         requester = trade.requester
         amount    = trade.credits_amount
         hours     = max(1, trade.service.duration // 60)
 
+        # ── Verificar si es el primer trade completado como proveedor ──────
+        # La consulta se hace ANTES de guardar el estado completed, por lo que
+        # el conteo actual es 0 si este es el primero.
+        is_first_offerer_trade = not Trade.objects.filter(
+            offerer=offerer,
+            status=Trade.Status.COMPLETED,
+        ).exists()
+
         # ── Descontar al requester ────────────
-        requester.credits        -= amount
-        requester.hours_given    += hours
+        requester.credits          = requester.credits - decimal.Decimal(amount)
+        requester.hours_given      += hours
         requester.completed_trades += 1
         requester.save(update_fields=['credits', 'hours_given', 'completed_trades'])
         requester.update_badge()
 
         Transaction.objects.create(
-            user=requester, trade=trade,
-            amount=-amount, transaction_type=Transaction.Type.DEBIT,
+            user=requester,
+            trade=trade,
+            amount=decimal.Decimal(-amount),
+            transaction_type=Transaction.Type.DEBIT,
         )
 
         # ── Abonar al offerer ─────────────────
-        offerer.credits          += amount
+        offerer.credits          = offerer.credits + decimal.Decimal(amount)
         offerer.hours_received   += hours
         offerer.completed_trades += 1
         offerer.save(update_fields=['credits', 'hours_received', 'completed_trades'])
         offerer.update_badge()
 
         Transaction.objects.create(
-            user=offerer, trade=trade,
-            amount=amount, transaction_type=Transaction.Type.CREDIT,
+            user=offerer,
+            trade=trade,
+            amount=decimal.Decimal(amount),
+            transaction_type=Transaction.Type.CREDIT,
         )
+
+        # ── Bono de onboarding: primer trade como proveedor (+1 cr) ──────────
+        if is_first_offerer_trade:
+            offerer.refresh_from_db(fields=['credits'])
+            offerer.credits += decimal.Decimal('1.0')
+            offerer.save(update_fields=['credits'])
+
+            Transaction.objects.create(
+                user=offerer,
+                trade=trade,
+                amount=decimal.Decimal('1.0'),
+                transaction_type=Transaction.Type.BONUS,
+                description='Bono de onboarding: primer intercambio como proveedor',
+            )
 
 
 # ══════════════════════════════════════════════════════════
@@ -392,11 +428,16 @@ class TradeStatusUpdateSerializer(serializers.ModelSerializer):
 
 class TransactionSerializer(serializers.ModelSerializer):
     trade_id     = serializers.IntegerField(source='trade.id', read_only=True)
-    service_name = serializers.CharField(source='trade.service.title', read_only=True)
+    service_name = serializers.SerializerMethodField()
 
     class Meta:
         model  = Transaction
-        fields = ['id', 'trade_id', 'service_name', 'amount', 'transaction_type', 'created_at']
+        fields = ['id', 'trade_id', 'service_name', 'amount', 'transaction_type', 'description', 'created_at']
+
+    def get_service_name(self, obj: Transaction) -> str:
+        if obj.trade_id:
+            return obj.trade.service.title
+        return obj.description or 'Bono de onboarding'
 
 
 # ══════════════════════════════════════════════════════════
@@ -462,7 +503,6 @@ class ConversationSerializer(serializers.ModelSerializer):
 
     def validate_participant_ids(self, value: list) -> list:
         request = self.context['request']
-        # Asegurarse de que el usuario actual es participante
         if request.user not in value:
             value.append(request.user)
         if len(value) < 2:
@@ -473,7 +513,6 @@ class ConversationSerializer(serializers.ModelSerializer):
         participants = validated_data.pop('participant_ids')
         sorted_ids   = sorted(p.id for p in participants)
 
-        # Reutilizar conversación existente entre los mismos usuarios
         for conv in Conversation.objects.prefetch_related('participants'):
             if sorted([p.id for p in conv.participants.all()]) == sorted_ids:
                 return conv
@@ -525,23 +564,16 @@ class ReviewCreateSerializer(serializers.ModelSerializer):
         trade    = attrs['trade']
         reviewee = attrs['reviewee']
 
-        # El reviewer debe haber participado en el trade
         if reviewer not in [trade.offerer, trade.requester]:
             raise serializers.ValidationError(
                 'No participaste en este intercambio y no puedes valorarlo.'
             )
-
-        # El reviewee también debe haber participado
         if reviewee not in [trade.offerer, trade.requester]:
             raise serializers.ValidationError(
                 'El usuario valorado no participó en este intercambio.'
             )
-
-        # No autovalorarse
         if reviewer == reviewee:
             raise serializers.ValidationError('No puedes valorarte a ti mismo.')
-
-        # Solo una valoración por trade por usuario
         if Review.objects.filter(trade=trade, reviewer=reviewer).exists():
             raise serializers.ValidationError('Ya has valorado este intercambio.')
 
@@ -587,11 +619,12 @@ class AdminUserUpdateSerializer(serializers.ModelSerializer):
         model  = User
         fields = ['is_staff', 'is_active', 'credits']
 
-    def validate_credits(self, value: int) -> int:
+    def validate_credits(self, value) -> decimal.Decimal:
         if value < 0:
             raise serializers.ValidationError('Los créditos no pueden ser negativos mediante ajuste manual.')
         return value
-    
+
+
 # ══════════════════════════════════════════════════════════
 #  CONTACTO
 # ══════════════════════════════════════════════════════════

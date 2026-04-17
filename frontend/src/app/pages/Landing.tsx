@@ -53,7 +53,6 @@ export const Landing: React.FC = () => {
 
       {/* Hero */}
       <section className="relative overflow-hidden bg-gradient-to-br from-teal-50 via-white to-amber-50 dark:from-slate-900 dark:via-slate-950 dark:to-slate-900">
-        {/* Subtle grid overlay for dark mode */}
         <div className="absolute inset-0 dark:opacity-30 opacity-0" style={{
           backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(148,163,184,0.15) 1px, transparent 0)',
           backgroundSize: '32px 32px',
@@ -230,7 +229,7 @@ export const Landing: React.FC = () => {
       </section>
 
       {/* Footer */}
-       <footer className="bg-slate-900 dark:bg-slate-950 border-t border-slate-800 text-slate-400 py-8">
+      <footer className="bg-slate-900 dark:bg-slate-950 border-t border-slate-800 text-slate-400 py-8">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <Clock className="w-4 h-4 text-teal-400" />

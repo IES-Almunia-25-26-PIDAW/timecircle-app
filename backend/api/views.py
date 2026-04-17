@@ -1,3 +1,4 @@
+import decimal
 from rest_framework import viewsets, status, generics, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -18,7 +19,7 @@ from datetime import timedelta
 
 from .models import (
     User, Category, Tag, Skill, Service, Trade, Transaction,
-    Conversation, Message, Review, ContactMessage 
+    Conversation, Message, Review, ContactMessage
 )
 from .serializers import (
     UserRegistrationSerializer, UserSerializer, UserUpdateSerializer, UserRankingSerializer,
@@ -68,7 +69,11 @@ class RegisterView(generics.CreateAPIView):
     @extend_schema(
         summary='Registrar nuevo usuario',
         description=(
-            'Crea una cuenta nueva con 10 créditos iniciales. '
+            'Crea una cuenta nueva con 0 créditos iniciales. '
+            'Los créditos se ganan completando acciones de onboarding: '
+            '+0,5 cr al añadir la primera habilidad, '
+            '+0,5 cr al publicar el primer servicio, '
+            '+1 cr al completar el primer intercambio como proveedor. '
             'Devuelve el objeto usuario y los tokens JWT (access + refresh).'
         ),
         request=UserRegistrationSerializer,
@@ -76,22 +81,6 @@ class RegisterView(generics.CreateAPIView):
             201: OpenApiResponse(description='Usuario creado correctamente'),
             400: OpenApiResponse(description='Datos inválidos o usuario ya existente'),
         },
-        examples=[
-            OpenApiExample(
-                'Registro mínimo',
-                value={
-                    'username': 'maria_vecina',
-                    'email': 'maria@ejemplo.com',
-                    'first_name': 'María',
-                    'last_name': 'García',
-                    'password': 'Segura1234!',
-                    'password2': 'Segura1234!',
-                    'location': 'Madrid',
-                    'bio': 'Me encanta ayudar a mis vecinos',
-                },
-                request_only=True,
-            )
-        ],
     )
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -218,10 +207,6 @@ class UserViewSet(viewsets.ModelViewSet):
     @extend_schema(
         tags=['Users'],
         summary='Ranking de usuarios más solidarios',
-        description=(
-            'Top 50 usuarios ordenados por trades completados, valoración media '
-            'y horas donadas. Incluye insignia (gold/silver/bronze).'
-        ),
         responses={200: UserRankingSerializer(many=True)},
     )
     @action(detail=False, methods=['get'], url_path='ranking')
@@ -231,22 +216,14 @@ class UserViewSet(viewsets.ModelViewSet):
         )[:50]
         return Response(UserRankingSerializer(users, many=True).data)
 
-    @extend_schema(
-        tags=['Users'],
-        summary='Servicios publicados por un usuario',
-        responses={200: ServiceSerializer(many=True)},
-    )
+    @extend_schema(tags=['Users'], summary='Servicios publicados por un usuario', responses={200: ServiceSerializer(many=True)})
     @action(detail=True, methods=['get'], url_path='services')
     def services(self, request, pk=None):
         user     = self.get_object()
         services = Service.objects.filter(user=user).select_related('category').prefetch_related('tags')
         return Response(ServiceSerializer(services, many=True, context={'request': request}).data)
 
-    @extend_schema(
-        tags=['Users'],
-        summary='Reseñas recibidas por un usuario',
-        responses={200: ReviewSerializer(many=True)},
-    )
+    @extend_schema(tags=['Users'], summary='Reseñas recibidas por un usuario', responses={200: ReviewSerializer(many=True)})
     @action(detail=True, methods=['get'], url_path='reviews')
     def reviews(self, request, pk=None):
         user    = self.get_object()
@@ -256,6 +233,11 @@ class UserViewSet(viewsets.ModelViewSet):
     @extend_schema(
         tags=['Users'],
         summary='Habilidades del usuario autenticado',
+        description=(
+            'GET: devuelve las habilidades propias.\n\n'
+            'POST: añade una habilidad. Si es la **primera** habilidad del usuario, '
+            'se otorga automáticamente un **bono de +0,5 créditos de onboarding**.'
+        ),
         responses={200: UserSkillSerializer(many=True)},
     )
     @action(detail=False, methods=['get', 'post'], url_path='skills')
@@ -264,9 +246,25 @@ class UserViewSet(viewsets.ModelViewSet):
             qs = request.user.user_skills.select_related('skill')
             return Response(UserSkillSerializer(qs, many=True).data)
 
+        # POST — crear habilidad
         serializer = UserSkillSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.save(user=request.user)
+
+        # ── Bono de onboarding: primera habilidad (+0,5 cr) ──────────────────
+        if request.user.user_skills.count() == 1:
+            request.user.refresh_from_db(fields=['credits'])
+            request.user.credits += decimal.Decimal('0.5')
+            request.user.save(update_fields=['credits'])
+
+            Transaction.objects.create(
+                user=request.user,
+                trade=None,
+                amount=decimal.Decimal('0.5'),
+                transaction_type=Transaction.Type.BONUS,
+                description='Bono de onboarding: primera habilidad añadida',
+            )
+
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
@@ -313,7 +311,7 @@ class UserViewSet(viewsets.ModelViewSet):
             'monthly_activity':   months,
             'total_trades':       Trade.objects.filter(Q(offerer=user) | Q(requester=user)).count(),
             'completed_trades':   user.completed_trades,
-            'credits':            user.credits,
+            'credits':            float(user.credits),
             'hours_given':        user.hours_given,
             'hours_received':     user.hours_received,
             'rating':             float(user.rating),
@@ -326,7 +324,6 @@ class UserViewSet(viewsets.ModelViewSet):
 
 @extend_schema(tags=['Categories'])
 class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
-    """Lista de las 12 categorías de servicios (solo lectura)."""
     queryset           = Category.objects.all()
     serializer_class   = CategorySerializer
     permission_classes = [IsAuthenticated]
@@ -342,7 +339,6 @@ class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
 
 @extend_schema(tags=['Tags'])
 class TagViewSet(viewsets.ReadOnlyModelViewSet):
-    """Etiquetas disponibles para servicios (solo lectura)."""
     queryset           = Tag.objects.all()
     serializer_class   = TagSerializer
     permission_classes = [IsAuthenticated]
@@ -354,7 +350,6 @@ class TagViewSet(viewsets.ReadOnlyModelViewSet):
 
 @extend_schema(tags=['Skills'])
 class SkillViewSet(viewsets.ModelViewSet):
-    """CRUD de habilidades (solo admins pueden crear/editar/borrar)."""
     queryset           = Skill.objects.all()
     serializer_class   = SkillSerializer
     permission_classes = [IsAuthenticated]
@@ -394,7 +389,11 @@ class SkillViewSet(viewsets.ModelViewSet):
     create=extend_schema(
         tags=['Services'],
         summary='Publicar nuevo servicio',
-        description='Crea una oferta o solicitud de servicio. El campo `user` se asigna automáticamente.',
+        description=(
+            'Crea una oferta o solicitud de servicio. '
+            'Si es el **primer servicio** del usuario, se otorga automáticamente '
+            'un **bono de +0,5 créditos de onboarding**.'
+        ),
     ),
     update=extend_schema(tags=['Services'], summary='Actualizar servicio completo'),
     partial_update=extend_schema(tags=['Services'], summary='Actualizar servicio parcialmente'),
@@ -428,7 +427,26 @@ class ServiceViewSet(viewsets.ModelViewSet):
         return qs.order_by('-created_at')
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        user = self.request.user
+
+        # Verificar si es el primer servicio ANTES de crearlo
+        is_first_service = not Service.objects.filter(user=user).exists()
+
+        serializer.save(user=user)
+
+        # ── Bono de onboarding: primer servicio publicado (+0,5 cr) ──────────
+        if is_first_service:
+            user.refresh_from_db(fields=['credits'])
+            user.credits += decimal.Decimal('0.5')
+            user.save(update_fields=['credits'])
+
+            Transaction.objects.create(
+                user=user,
+                trade=None,
+                amount=decimal.Decimal('0.5'),
+                transaction_type=Transaction.Type.BONUS,
+                description='Bono de onboarding: primer servicio publicado',
+            )
 
     def _check_owner(self, request, service):
         if service.user != request.user and not request.user.is_staff:
@@ -514,8 +532,9 @@ class TradeViewSet(viewsets.ModelViewSet):
             '| in_progress   | completed, cancelled    |\n'
             '| completed     | — (estado final)        |\n'
             '| cancelled     | — (estado final)        |\n\n'
-            'Al pasar a **completed** los créditos se transfieren automáticamente '
-            'y se actualizan las estadísticas de ambos usuarios.'
+            'Al pasar a **completed**: los créditos se transfieren automáticamente, '
+            'se actualizan las estadísticas y, si es el primer trade completado como '
+            'proveedor, el offerer recibe **+1 cr de bono de onboarding**.'
         ),
         request=TradeStatusUpdateSerializer,
         responses={
@@ -557,15 +576,11 @@ class TradeViewSet(viewsets.ModelViewSet):
     create=extend_schema(
         tags=['Conversations'],
         summary='Crear o recuperar una conversación',
-        description=(
-            'Si ya existe una conversación entre los mismos participantes, '
-            'la devuelve en lugar de crear una nueva.'
-        ),
     ),
 )
 class ConversationViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
-    http_method_names  = ['get', 'post', 'head', 'options']
+    http_method_names  = ['get', 'post', 'head', 'options', 'patch']
 
     def get_serializer_class(self):
         return ConversationSerializer
@@ -579,10 +594,7 @@ class ConversationViewSet(viewsets.ModelViewSet):
         tags=['Conversations'],
         summary='Enviar mensaje en una conversación',
         request=MessageCreateSerializer,
-        responses={
-            201: MessageSerializer,
-            403: OpenApiResponse(description='No eres participante de esta conversación'),
-        },
+        responses={201: MessageSerializer, 403: OpenApiResponse(description='No eres participante')},
     )
     @action(detail=True, methods=['post'], url_path='messages')
     def send_message(self, request, pk=None):
@@ -600,7 +612,6 @@ class ConversationViewSet(viewsets.ModelViewSet):
             sender=request.user,
             content=serializer.validated_data['content'],
         )
-        # Actualiza updated_at de la conversación
         conversation.save()
 
         return Response(
@@ -611,7 +622,6 @@ class ConversationViewSet(viewsets.ModelViewSet):
     @extend_schema(
         tags=['Conversations'],
         summary='Marcar mensajes como leídos',
-        description='Marca todos los mensajes no leídos (de otros) en esta conversación.',
         responses={200: OpenApiResponse(description='Número de mensajes marcados como leídos')},
     )
     @action(detail=True, methods=['patch'], url_path='read')
@@ -647,11 +657,6 @@ class ConversationViewSet(viewsets.ModelViewSet):
     create=extend_schema(
         tags=['Reviews'],
         summary='Crear reseña tras intercambio completado',
-        description=(
-            'Solo se puede valorar un intercambio en estado `completed`. '
-            'Cada participante puede dejar una valoración. '
-            'El rating medio del usuario valorado se recalcula automáticamente.'
-        ),
     ),
 )
 class ReviewViewSet(viewsets.ModelViewSet):
@@ -687,42 +692,18 @@ class ReviewViewSet(viewsets.ModelViewSet):
 
 @extend_schema(tags=['Admin'])
 class AdminStatsView(generics.GenericAPIView):
-    """Estadísticas globales de la plataforma. Solo accesible para staff."""
     permission_classes = [IsAdminUser]
 
     @extend_schema(
         summary='Estadísticas globales de TimeCircle',
-        description='Resumen de usuarios, servicios, trades y actividad de los últimos 30 días.',
-        responses={
-            200: OpenApiResponse(
-                description='Estadísticas de la plataforma',
-                response={
-                    'type': 'object',
-                    'properties': {
-                        'total_users':               {'type': 'integer'},
-                        'active_users_last_30_days': {'type': 'integer'},
-                        'total_services':            {'type': 'integer'},
-                        'services_by_type':          {'type': 'object'},
-                        'total_trades':              {'type': 'integer'},
-                        'trades_by_status':          {'type': 'object'},
-                        'total_reviews':             {'type': 'integer'},
-                        'avg_rating':                {'type': 'number'},
-                        'total_hours_exchanged':     {'type': 'integer'},
-                        'total_credits_in_system':   {'type': 'integer'},
-                    },
-                },
-            )
-        },
+        responses={200: OpenApiResponse(description='Estadísticas de la plataforma')},
     )
     def get(self, request):
         last_30 = timezone.now() - timedelta(days=30)
 
         stats = {
             'total_users': User.objects.filter(is_active=True).count(),
-            'active_users_last_30_days': User.objects.filter(
-                last_login__gte=last_30
-            ).count(),
-
+            'active_users_last_30_days': User.objects.filter(last_login__gte=last_30).count(),
             'total_services': Service.objects.count(),
             'services_by_type': {
                 'offers':   Service.objects.filter(type='offer').count(),
@@ -732,24 +713,18 @@ class AdminStatsView(generics.GenericAPIView):
                 s: Service.objects.filter(status=s).count()
                 for s in ['active', 'paused', 'completed']
             },
-
             'total_trades': Trade.objects.count(),
             'trades_by_status': {
                 s: Trade.objects.filter(status=s).count()
                 for s in ['pending', 'accepted', 'in_progress', 'completed', 'cancelled']
             },
             'trades_last_30_days': Trade.objects.filter(created_at__gte=last_30).count(),
-
             'total_reviews': Review.objects.count(),
             'avg_rating':    Review.objects.aggregate(avg=Avg('rating'))['avg'] or 0,
-
-            'total_hours_exchanged': User.objects.aggregate(
-                total=Sum('hours_given')
-            )['total'] or 0,
-            'total_credits_in_system': User.objects.aggregate(
-                total=Sum('credits')
-            )['total'] or 0,
-
+            'total_hours_exchanged': User.objects.aggregate(total=Sum('hours_given'))['total'] or 0,
+            'total_credits_in_system': float(
+                User.objects.aggregate(total=Sum('credits'))['total'] or 0
+            ),
             'top_categories': list(
                 Service.objects.values('category__name')
                 .annotate(count=Count('id'))
@@ -764,21 +739,13 @@ class AdminStatsView(generics.GenericAPIView):
         tags=['Admin'],
         summary='Listar todos los usuarios (Admin)',
         parameters=[
-            OpenApiParameter('search',  OpenApiTypes.STR,  description='Búsqueda por username, email o nombre'),
-            OpenApiParameter('is_active', OpenApiTypes.BOOL, description='Filtrar por estado activo/inactivo'),
+            OpenApiParameter('search',    OpenApiTypes.STR,  description='Búsqueda'),
+            OpenApiParameter('is_active', OpenApiTypes.BOOL, description='Filtrar por estado'),
         ],
     ),
     retrieve=extend_schema(tags=['Admin'], summary='Obtener usuario (Admin)'),
-    partial_update=extend_schema(
-        tags=['Admin'],
-        summary='Modificar usuario (Admin)',
-        description='Permite cambiar is_staff, is_active y ajustar créditos.',
-    ),
-    destroy=extend_schema(
-        tags=['Admin'],
-        summary='Desactivar usuario (Admin)',
-        description='Desactivación lógica (is_active=False). No elimina datos.',
-    ),
+    partial_update=extend_schema(tags=['Admin'], summary='Modificar usuario (Admin)'),
+    destroy=extend_schema(tags=['Admin'], summary='Desactivar usuario (Admin)'),
 )
 class AdminUserViewSet(viewsets.ModelViewSet):
     queryset           = User.objects.all().order_by('-date_joined')
@@ -794,14 +761,13 @@ class AdminUserViewSet(viewsets.ModelViewSet):
         return AdminUserSerializer
 
     def get_queryset(self):
-        qs       = super().get_queryset()
+        qs        = super().get_queryset()
         is_active = self.request.query_params.get('is_active')
         if is_active is not None:
             qs = qs.filter(is_active=is_active.lower() == 'true')
         return qs
 
     def destroy(self, request, *args, **kwargs):
-        """Desactivación lógica en lugar de borrado físico."""
         user = self.get_object()
         if user == request.user:
             return Response(
@@ -815,11 +781,7 @@ class AdminUserViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
-    @extend_schema(
-        tags=['Admin'],
-        summary='Reactivar usuario desactivado (Admin)',
-        responses={200: AdminUserSerializer},
-    )
+    @extend_schema(tags=['Admin'], summary='Reactivar usuario desactivado (Admin)', responses={200: AdminUserSerializer})
     @action(detail=True, methods=['patch'], url_path='activate')
     def activate(self, request, pk=None):
         user           = self.get_object()
@@ -827,10 +789,7 @@ class AdminUserViewSet(viewsets.ModelViewSet):
         user.save(update_fields=['is_active'])
         return Response(AdminUserSerializer(user).data)
 
-    @extend_schema(
-        tags=['Admin'],
-        summary='Estadísticas individuales de un usuario (Admin)',
-    )
+    @extend_schema(tags=['Admin'], summary='Estadísticas individuales de un usuario (Admin)')
     @action(detail=True, methods=['get'], url_path='stats')
     def user_stats(self, request, pk=None):
         user = self.get_object()
@@ -847,33 +806,22 @@ class AdminUserViewSet(viewsets.ModelViewSet):
                 user.transactions.order_by('-created_at')[:20], many=True
             ).data,
         })
+
+
 # ══════════════════════════════════════════════════════════
 #  CONTACTO
 # ══════════════════════════════════════════════════════════
 
 @extend_schema(tags=['Contact'])
 class ContactView(generics.CreateAPIView):
-    """
-    Formulario de contacto público.
-    No requiere autenticación.
-    Guarda el mensaje en la base de datos y lo expone en el admin de Django.
-    """
     queryset           = ContactMessage.objects.all()
     serializer_class   = ContactMessageSerializer
     permission_classes = [AllowAny]
 
     @extend_schema(
         summary='Enviar mensaje de contacto',
-        description=(
-            'Endpoint público para recibir mensajes del formulario de contacto. '
-            'Los mensajes se almacenan en la base de datos y son visibles en el '
-            'panel de administración de Django.'
-        ),
         request=ContactMessageSerializer,
-        responses={
-            201: OpenApiResponse(description='Mensaje recibido correctamente'),
-            400: OpenApiResponse(description='Datos inválidos'),
-        },
+        responses={201: OpenApiResponse(description='Mensaje recibido correctamente'), 400: OpenApiResponse(description='Datos inválidos')},
     )
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)

@@ -2,6 +2,7 @@ from django.db import models
 from django.db.models import Q, Avg
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth.models import AbstractUser
+import decimal
 
 
 # ─────────────────────────────────────────────
@@ -13,6 +14,11 @@ class User(AbstractUser):
     Usuario de TimeCircle.
     Extiende AbstractUser añadiendo los campos del banco de tiempo.
     Los créditos horarios se transfieren automáticamente al completar un Trade.
+
+    Economía de onboarding (créditos iniciales = 0):
+      +0.5 cr  →  al crear la primera habilidad (skill)
+      +0.5 cr  →  al publicar el primer servicio
+      +1.0 cr  →  al completar el primer intercambio como proveedor (offerer)
     """
 
     class Badge(models.TextChoices):
@@ -26,7 +32,14 @@ class User(AbstractUser):
     location = models.CharField(max_length=100, blank=True, default='')
 
     # ── Economía de créditos ─────────────────
-    credits        = models.IntegerField(default=10)
+    # DecimalField con 1 decimal para soportar bonos de 0,5 cr.
+    # Los nuevos usuarios empiezan con 0 créditos y los ganan completando
+    # acciones de onboarding.
+    credits        = models.DecimalField(
+        max_digits=8,
+        decimal_places=1,
+        default=decimal.Decimal('0.0'),
+    )
     hours_given    = models.PositiveIntegerField(default=0)
     hours_received = models.PositiveIntegerField(default=0)
 
@@ -62,6 +75,16 @@ class User(AbstractUser):
         self.rating        = result['avg'] or 0.00
         self.total_reviews = self.received_reviews.count()
         self.save(update_fields=['rating', 'total_reviews'])
+
+    def award_onboarding_bonus(self, bonus: decimal.Decimal, reason: str) -> None:
+        """
+        Otorga un bono de créditos de onboarding y lo persiste.
+        Uso interno; llamar desde views o serializers tras verificar
+        que la condición de primera vez se cumple.
+        """
+        self.refresh_from_db(fields=['credits'])
+        self.credits += bonus
+        self.save(update_fields=['credits'])
 
 
 # ─────────────────────────────────────────────
@@ -199,13 +222,20 @@ class Trade(models.Model):
 
 class Transaction(models.Model):
     class Type(models.TextChoices):
-        DEBIT  = 'debit',  _('Débito')
-        CREDIT = 'credit', _('Crédito')
+        DEBIT   = 'debit',   _('Débito')
+        CREDIT  = 'credit',  _('Crédito')
+        BONUS   = 'bonus',   _('Bono de onboarding')
 
     user             = models.ForeignKey(User,  on_delete=models.CASCADE, related_name='transactions')
-    trade            = models.ForeignKey(Trade, on_delete=models.CASCADE, related_name='transactions')
-    amount           = models.IntegerField(help_text=_('Positivo = crédito recibido / Negativo = crédito pagado'))
+    trade            = models.ForeignKey(Trade, on_delete=models.CASCADE, related_name='transactions',
+                                         null=True, blank=True)
+    amount           = models.DecimalField(
+        max_digits=8,
+        decimal_places=1,
+        help_text=_('Positivo = crédito recibido / Negativo = crédito pagado'),
+    )
     transaction_type = models.CharField(max_length=10, choices=Type.choices)
+    description      = models.CharField(max_length=200, blank=True, default='')
     created_at       = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -215,7 +245,8 @@ class Transaction(models.Model):
         verbose_name_plural = _('Transacciones')
 
     def __str__(self):
-        return f'{self.user.username} · {self.amount:+d} créditos · Trade #{self.trade_id}'
+        trade_ref = f'Trade #{self.trade_id}' if self.trade_id else 'Bono'
+        return f'{self.user.username} · {self.amount:+} créditos · {trade_ref}'
 
 
 # ─────────────────────────────────────────────
