@@ -157,8 +157,8 @@ class PresenceConsumer(AsyncWebsocketConsumer):
                                 'typing': bool(presence.typing_conversation_id == cid),
                             }
                         )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.exception("Error handling heartbeat for user %s: %s", getattr(self.user, "id", None), e)
 
     # Handler for messages sent to groups
     async def presence_message(self, event):
