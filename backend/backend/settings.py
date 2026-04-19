@@ -19,8 +19,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 load_dotenv(BASE_DIR / ".env", override=True)
 
 # ── Seguridad ─────────────────────────────────────────────
-SECRET_KEY              = os.getenv('SECRET_KEY', 'django-insecure-CHANGE-ME-in-production')
+_DEFAULT_SECRET_KEY     = 'django-insecure-CHANGE-ME-in-production'
+SECRET_KEY              = os.getenv('SECRET_KEY', _DEFAULT_SECRET_KEY)
 DEBUG                   = os.getenv('DEBUG', 'True') == 'True'
+
+if not DEBUG and (not SECRET_KEY or SECRET_KEY == _DEFAULT_SECRET_KEY):
+    raise ValueError(
+        "Insecure configuration: SECRET_KEY must be set to a unique, non-default value when DEBUG is False."
+    )
 
 # --- Cookies seguras ---
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
@@ -36,11 +42,13 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
 SECURE_CONTENT_TYPE_NOSNIFF = not DEBUG   # Evita que el navegador adivine el MIME type
 X_FRAME_OPTIONS             = "DENY" # Previene clickjacking en iframes
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',')
+_raw_allowed_hosts = os.getenv('ALLOWED_HOSTS', '')
+ALLOWED_HOSTS = [host.strip() for host in _raw_allowed_hosts.split(',') if host.strip()]
 
-# ── Redis ─────────────────────────────────────────────────
-REDIS_HOST = os.getenv("REDIS_HOST", "redis")
-REDIS_PORT = os.getenv("REDIS_PORT", "6379")
+if not DEBUG and not ALLOWED_HOSTS:
+    raise ValueError(
+        "Insecure configuration: ALLOWED_HOSTS must contain at least one valid host when DEBUG is False."
+    )
 
 # ── Aplicaciones ──────────────────────────────────────────
 INSTALLED_APPS = [
@@ -137,7 +145,11 @@ USE_TZ        = True
 # ── Archivos estáticos y media ────────────────────────────
 STATIC_URL  = 'static/'
 STATIC_ROOT = BASE_DIR / 'static'
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+STORAGES = {
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+    },
+}
 
 MEDIA_URL  = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
@@ -187,7 +199,22 @@ SIMPLE_JWT = {
 
 # ── CORS ──────────────────────────────────────────────────
 # En producción, reemplaza con los dominios reales del frontend
-CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', '').split(',')
+_cors_allowed_origins_env = os.getenv('CORS_ALLOWED_ORIGINS')
+if _cors_allowed_origins_env:
+    CORS_ALLOWED_ORIGINS = [
+        origin.strip()
+        for origin in _cors_allowed_origins_env.split(',')
+        if origin.strip()
+    ]
+elif DEBUG:
+    CORS_ALLOWED_ORIGINS = [
+        'http://localhost:3000',
+        'http://localhost:5173',
+    ]
+else:
+    raise ValueError(
+        "Insecure configuration: CORS_ALLOWED_ORIGINS must be set in production."
+    )
 # Patrones dinámicos (previews de Vercel)
 _raw_regexes = os.getenv('CORS_ALLOWED_ORIGIN_REGEXES', '')
 CORS_ALLOWED_ORIGIN_REGEXES = [
