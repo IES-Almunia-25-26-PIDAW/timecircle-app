@@ -1,5 +1,15 @@
 const BASE_URL = import.meta.env.VITE_API_URL;
 
+export { BASE_URL };
+
+// Construir WebSocket URL a partir de la URL API
+export const getWsUrl = (path: string): string => {
+  const proto = BASE_URL.startsWith('https') ? 'wss' : 'ws';
+  const apiUrl = new URL(BASE_URL);
+  const host = apiUrl.host;
+  return `${proto}://${host}${path}`;
+};
+
 export const getTokens = () => ({
   access: localStorage.getItem('tc_access'),
   refresh: localStorage.getItem('tc_refresh'),

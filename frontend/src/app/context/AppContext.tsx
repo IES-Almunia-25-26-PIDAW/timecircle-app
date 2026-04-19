@@ -16,7 +16,7 @@ import {
   apiGetReviews, apiCreateReview,
   apiAdminGetUsers, apiAdminUpdateUser, apiAdminDeleteUser,
 } from '../api/endpoints';
-import { clearTokens, getTokens, apiFetch } from '../api/client';
+import { clearTokens, getTokens, apiFetch, getWsUrl } from '../api/client';
 import { createWS } from '../api/wsClient';
 import { apiGetWSPresenceHandshake } from '../api/endpoints';
 
@@ -276,9 +276,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           try {
             const hs = await apiGetWSPresenceHandshake();
             if (hs?.ws_key) {
-              const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-              const host = window.location.host;
-              const url = `${proto}://${host}/ws/presence/?ws_key=${encodeURIComponent(hs.ws_key)}`;
+              const url = getWsUrl(`/ws/presence/?ws_key=${encodeURIComponent(hs.ws_key)}`);
               wsRef.current = createWS(url);
               wsRef.current.onMessage((msg: any) => {
                 if (msg?.type === 'presence') {
@@ -377,9 +375,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       try {
         const hs = await apiGetWSPresenceHandshake();
         if (hs?.ws_key) {
-          const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-          const host = window.location.host;
-          const url = `${proto}://${host}/ws/presence/?ws_key=${encodeURIComponent(hs.ws_key)}`;
+          const url = getWsUrl(`/ws/presence/?ws_key=${encodeURIComponent(hs.ws_key)}`);
           wsRef.current = createWS(url);
           wsRef.current.onMessage((msg: any) => {
             if (msg?.type === 'presence') {
