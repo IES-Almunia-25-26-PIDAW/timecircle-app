@@ -1,55 +1,43 @@
 """
 TimeCircle — rutas de la API (api/)
 
-Todas las rutas tienen el prefijo /api/ (configurado en backend/urls.py).
-
 Auth endpoints (sin prefijo de router):
-  POST   /api/auth/register/          → Registro
-  POST   /api/auth/login/             → Login JWT
-  POST   /api/auth/refresh/           → Refresh token
-  GET    /api/auth/me/                → Perfil propio
-  PATCH  /api/auth/me/                → Actualizar perfil
-  POST   /api/auth/logout/            → Logout (blacklist)
+  POST   /api/auth/register/
+  POST   /api/auth/login/
+  POST   /api/auth/refresh/
+  GET    /api/auth/me/
+  PATCH  /api/auth/me/
+  POST   /api/auth/logout/
+
+Presencia (tiempo real via polling):
+  POST   /api/presence/heartbeat/   → heartbeat + status (online|away)
+  POST   /api/presence/typing/      → indicar que estoy escribiendo
+  GET    /api/presence/             → consultar presencia de otro usuario
 
 Router endpoints:
   /api/users/                  → UserViewSet
-  /api/users/ranking/          → Ranking
-  /api/users/{id}/services/    → Servicios de un usuario
-  /api/users/{id}/reviews/     → Reseñas recibidas por un usuario
-  /api/users/skills/           → Habilidades del usuario autenticado
-  /api/users/transactions/     → Historial de créditos del usuario autenticado
-  /api/users/activity/         → Actividad mensual del usuario autenticado
+  /api/users/ranking/
+  /api/users/{id}/services/
+  /api/users/{id}/reviews/
+  /api/users/skills/
+  /api/users/transactions/
+  /api/users/activity/
 
-  /api/categories/             → CategoryViewSet (solo lectura)
-  /api/tags/                   → TagViewSet (solo lectura)
-  /api/skills/                 → SkillViewSet
+  /api/categories/
+  /api/tags/
+  /api/skills/
+  /api/services/
+  /api/trades/
+  /api/trades/{id}/status/
+  /api/conversations/
+  /api/conversations/{id}/messages/
+  /api/conversations/{id}/read/
+  /api/reviews/
 
-  /api/services/               → ServiceViewSet
-  /api/trades/                 → TradeViewSet
-  /api/trades/{id}/status/     → Cambiar estado del Trade
+  /contact/
 
-  /api/conversations/                    → ConversationViewSet
-  /api/conversations/{id}/messages/      → Enviar mensaje
-  /api/conversations/{id}/read/          → Marcar como leídos
-
-  /api/reviews/                → ReviewViewSet
-
-Contacto (público):
-
-  /contact → ContactView 
-
-Admin endpoints:
-  GET    /api/admin/stats/              → Estadísticas globales
-  GET    /api/admin/users/              → Listado de usuarios
-  PATCH  /api/admin/users/{id}/         → Editar usuario
-  DELETE /api/admin/users/{id}/         → Desactivar usuario
-  PATCH  /api/admin/users/{id}/activate/ → Reactivar usuario
-  GET    /api/admin/users/{id}/stats/   → Stats individuales
-
-Documentación Swagger:
-  GET    /api/schema/   → OpenAPI schema (JSON/YAML)
-  GET    /api/docs/     → Swagger UI
-  GET    /api/redoc/    → ReDoc
+  /api/admin/stats/
+  /api/admin/users/
 """
 
 from django.urls import path, include
@@ -58,10 +46,13 @@ from rest_framework_simplejwt.views import TokenRefreshView
 
 from .views import (
     LoginView, RegisterView, MeView, LogoutView,
+  WSPresenceHandshakeView,
     UserViewSet, CategoryViewSet, TagViewSet, SkillViewSet,
     ServiceViewSet, TradeViewSet,
     ConversationViewSet, ReviewViewSet,
-    AdminStatsView, AdminUserViewSet, ContactView
+    AdminStatsView, AdminUserViewSet, ContactView,
+    # Presencia — añadir al import de views.py
+    PresenceHeartbeatView, PresenceTypingView, PresenceStatusView,
 )
 
 # ── Router principal ──────────────────────────────────────
@@ -79,17 +70,23 @@ router.register(r'admin/users',   AdminUserViewSet,    basename='admin-user')
 # ── URL patterns ──────────────────────────────────────────
 urlpatterns = [
     # Auth
-    path('auth/register/', RegisterView.as_view(),  name='auth-register'),
-    path('auth/login/',    LoginView.as_view(),     name='auth-login'),
-    path('auth/refresh/',  TokenRefreshView.as_view(), name='auth-refresh'),
-    path('auth/me/',       MeView.as_view(),        name='auth-me'),
-    path('auth/logout/',   LogoutView.as_view(),    name='auth-logout'),
+    path('auth/register/', RegisterView.as_view(),      name='auth-register'),
+    path('auth/login/',    LoginView.as_view(),          name='auth-login'),
+    path('auth/refresh/',  TokenRefreshView.as_view(),   name='auth-refresh'),
+    path('auth/me/',       MeView.as_view(),             name='auth-me'),
+    path('auth/logout/',   LogoutView.as_view(),         name='auth-logout'),
+    path('auth/ws-handshake/', WSPresenceHandshakeView.as_view(), name='auth-ws-handshake'),
 
-    # Contacto (público, sin autenticación)
-    path('contact/',       ContactView.as_view(),   name='contact'),
+    # Presencia en tiempo real (polling)
+    path('presence/heartbeat/', PresenceHeartbeatView.as_view(), name='presence-heartbeat'),
+    path('presence/typing/',    PresenceTypingView.as_view(),     name='presence-typing'),
+    path('presence/',           PresenceStatusView.as_view(),     name='presence-status'),
 
-    # Admin stats (fuera del router para evitar conflicto con el prefijo admin/users)
-    path('admin/stats/',   AdminStatsView.as_view(), name='admin-stats'),
+    # Contacto (público)
+    path('contact/', ContactView.as_view(), name='contact'),
+
+    # Admin stats
+    path('admin/stats/', AdminStatsView.as_view(), name='admin-stats'),
 
     # Router
     path('', include(router.urls)),

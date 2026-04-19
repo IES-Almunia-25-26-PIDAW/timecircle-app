@@ -16,7 +16,9 @@ import {
   apiGetReviews, apiCreateReview,
   apiAdminGetUsers, apiAdminUpdateUser, apiAdminDeleteUser,
 } from '../api/endpoints';
-import { clearTokens, getTokens } from '../api/client';
+import { clearTokens, getTokens, apiFetch } from '../api/client';
+import { createWS } from '../api/wsClient';
+import { apiGetWSPresenceHandshake } from '../api/endpoints';
 
 // ── MAPPERS API → UI ─────────────────────────────────────────
 
@@ -128,6 +130,8 @@ interface AppContextType {
   startConversation: (otherUserId: string) => Promise<string>;
   markConversationRead: (conversationId: string) => void;
   loadConversationMessages: (conversationId: string) => Promise<void>;
+  refreshConversationMessages: (conversationId: string) => Promise<void>;
+  refreshUnread: () => Promise<void>;
 
   // Review Actions
   addReview: (review: Omit<Review, 'id' | 'createdAt'>) => void;
@@ -147,6 +151,9 @@ interface AppContextType {
   getUserConversations: (userId: string) => Conversation[];
   totalUnreadMessages: number;
 
+  // WebSocket client (presence)
+  getWsClient: () => any;
+
   // Refresh
   refreshServices: () => Promise<void>;
   refreshTrades: () => Promise<void>;
@@ -165,6 +172,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [loading, setLoading] = useState(true);
   const [apiCategoryMap, setApiCategoryMap] = useState<Record<string, number>>({});
   const loadedConvs = useRef<Set<string>>(new Set());
+  const wsRef = useRef<any>(null);
 
   // ── FETCH APP DATA ────────────────────────────────────────
 
@@ -264,6 +272,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const user = mapUser(meData);
           setCurrentUser(user);
           await loadInitialData(user);
+          // open websocket for presence & messages
+          try {
+            const hs = await apiGetWSPresenceHandshake();
+            if (hs?.ws_key) {
+              const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+              const host = window.location.host;
+              const url = `${proto}://${host}/ws/presence/?ws_key=${encodeURIComponent(hs.ws_key)}`;
+              wsRef.current = createWS(url);
+              wsRef.current.onMessage((msg: any) => {
+                if (msg?.type === 'presence') {
+                  setUsers(prev => prev.map(u => (u.id === String(msg.user_id) ? { ...u, presenceStatus: msg.status, isTyping: msg.typing } : u)));
+                }
+              });
+            }
+          } catch (e) {
+            // ignore ws errors
+          }
         }
       } catch {
         clearTokens();
@@ -273,6 +298,71 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     init();
   }, []);
+
+  // ── GLOBAL PRESENCE TRACKING ──────────────────────────────
+  // Rastrea el estado en línea del usuario actual de forma global,
+  // independientemente de qué página está viendo. Inicia en 'en línea'
+  // al iniciar sesión, pasa a 'ausente' después de 10 min sin actividad,
+  // y se limpia correctamente al desconectarse.
+  useEffect(() => {
+    const TEN_MINS_IN_MS = 10 * 60 * 1000;
+    const HEARTBEAT_INTERVAL_MS = 30 * 1000;
+
+    if (!currentUser) return;
+
+    let currentStatus: 'online' | 'away' = 'online';
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const sendHeartbeat = () => {
+      apiFetch('/api/presence/heartbeat/', {
+        method: 'POST',
+        body: JSON.stringify({ status: currentStatus }),
+      }).catch(() => {});
+    };
+
+    const goAway = () => {
+      currentStatus = 'away';
+      sendHeartbeat();
+    };
+
+    const resetIdle = () => {
+      if (currentStatus === 'away') {
+        currentStatus = 'online';
+        sendHeartbeat();
+      }
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(goAway, TEN_MINS_IN_MS);
+    };
+
+    // Al iniciar sesión: enviar 'en línea'
+    currentStatus = 'online';
+    sendHeartbeat();
+    resetIdle();
+
+    // Latido cada 30 segundos
+    const heartbeatInterval = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
+
+    // Los eventos de actividad resetean el temporizador de inactividad
+    const events: (keyof WindowEventMap)[] = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart'];
+    events.forEach((e) => window.addEventListener(e, resetIdle, { passive: true }));
+
+    // Al descargar/salir: marcar como 'ausente'
+    const handleBeforeUnload = () => {
+      apiFetch('/api/presence/heartbeat/', {
+        method: 'POST',
+        body: JSON.stringify({ status: 'away' }),
+      }).catch(() => {});
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      // Limpieza al desmontar
+      clearInterval(heartbeatInterval);
+      if (idleTimer) clearTimeout(idleTimer);
+      events.forEach((e) => window.removeEventListener(e, resetIdle));
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [currentUser]);
 
   // ── AUTH ─────────────────────────────────────────────────
 
@@ -284,6 +374,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setCurrentUser(user);
       setLoading(true);
       await loadInitialData(user);
+      try {
+        const hs = await apiGetWSPresenceHandshake();
+        if (hs?.ws_key) {
+          const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+          const host = window.location.host;
+          const url = `${proto}://${host}/ws/presence/?ws_key=${encodeURIComponent(hs.ws_key)}`;
+          wsRef.current = createWS(url);
+          wsRef.current.onMessage((msg: any) => {
+            if (msg?.type === 'presence') {
+              setUsers(prev => prev.map(u => (u.id === String(msg.user_id) ? { ...u, presenceStatus: msg.status, isTyping: msg.typing } : u)));
+            }
+          });
+        }
+      } catch (e) {
+        // ignore
+      }
       setLoading(false);
       return true;
     } catch (e) {
@@ -294,6 +400,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const logout = useCallback(() => {
     apiLogout();
+    try { wsRef.current?.close(); } catch (e) {}
     setCurrentUser(null);
     setUsers([]);
     setServices([]);
@@ -510,6 +617,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, []);
 
+  const refreshConversationMessages = useCallback(async (conversationId: string) => {
+  try {
+    const conv = await apiGetConversation(conversationId);
+    const msgs = (conv?.messages || []).map((m: any) => mapMessage(m, conversationId));
+    setMessages(prev => {
+      const existing = prev.filter(m => m.conversationId !== conversationId);
+      // Merge: keep existing IDs to avoid flicker, add new ones
+      const existingIds = new Set(existing.map(m => m.id));
+      const newMsgs = msgs.filter((m: any) => !existingIds.has(m.id));
+      // Also update read status on existing
+      const updated = existing.map(m => {
+        const fresh = msgs.find((fm: any) => fm.id === m.id);
+        return fresh ? { ...m, read: fresh.read } : m;
+      });
+      return [...updated, ...newMsgs];
+    });
+    // Update conversation last message / unread
+    setConversations(prev => prev.map(c => {
+      if (c.id !== conversationId) return c;
+      const last = conv?.messages?.[conv.messages.length - 1];
+      return {
+        ...c,
+        lastMessage: last?.content ?? c.lastMessage,
+        lastTimestamp: last?.timestamp ?? c.lastTimestamp,
+        // Unread = msgs from others not yet read
+        unreadCount: 0, // will be handled by markRead on open
+      };
+    }));
+  } catch (e) {
+    // silently ignore network errors during polling
+  }
+}, []);
+ 
+const refreshUnread = useCallback(async () => {
+  if (!currentUser) return;
+  try {
+    const data = await apiGetConversations();
+    const list = data?.results || data || [];
+    setConversations(list.map(mapConversation));
+  } catch (e) {
+    // silently ignore
+  }
+}, [currentUser]);
+
   // ── REVIEW ACTIONS ────────────────────────────────────────
 
   const addReview = useCallback(async (review: Omit<Review, 'id' | 'createdAt'>) => {
@@ -603,13 +754,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       loading, apiCategoryMap,
       addService, updateService, deleteService,
       createTrade, updateTrade,
-      sendMessage, startConversation, markConversationRead, loadConversationMessages,
+      sendMessage, startConversation, markConversationRead, loadConversationMessages, refreshConversationMessages, refreshUnread,
       addReview,
       adminDeleteUser, adminDeleteService, adminUpdateUser,
       getUserById, getServiceById, getTradeById,
       getUserReviews, getUserTrades, getConversationMessages, getUserConversations,
       totalUnreadMessages,
       refreshServices, refreshTrades,
+      getWsClient: () => wsRef.current,
     }}>
       {children}
     </AppContext.Provider>

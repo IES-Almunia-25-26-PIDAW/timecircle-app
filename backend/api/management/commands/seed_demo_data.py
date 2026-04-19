@@ -1,24 +1,18 @@
 """
 Comando de gestión para poblar la base de datos con datos de demostración.
 
-Crea:
-  - 1 superusuario admin
-  - 5 usuarios demo con distintos perfiles
-  - Habilidades y asignaciones a usuarios
-  - Servicios de distintas categorías
-  - Intercambios en distintos estados
-  - Conversaciones y mensajes
-  - Reseñas
+Los usuarios demo ya tienen créditos acumulados a través de su actividad,
+tal como ocurriría en la plataforma real (empezando desde 0 + bonos + trades).
 
 Uso:
     python manage.py seed_demo_data
-    python manage.py seed_demo_data --reset   # borra todo primero (¡cuidado en producción!)
+    python manage.py seed_demo_data --reset
 """
 
+import decimal
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 from datetime import timedelta
-import random
 
 from api.models import (
     User, Category, Tag, Skill, UserSkill,
@@ -31,11 +25,8 @@ class Command(BaseCommand):
     help = 'Pobla la base de datos con datos de demostración para TimeCircle.'
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            '--reset',
-            action='store_true',
-            help='Elimina todos los datos existentes antes de crear los de demo.',
-        )
+        parser.add_argument('--reset', action='store_true',
+                            help='Elimina todos los datos existentes antes de crear los de demo.')
 
     def handle(self, *args, **options):
         if options['reset']:
@@ -62,7 +53,6 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS('\n✔ Datos de demo creados correctamente.'))
         self.stdout.write('  Admin: admin@timecircle.com / Admin1234!')
-        self.stdout.write('  Usuarios demo: ver lista en código.')
 
     # ── Helpers ────────────────────────────────────────────
 
@@ -76,46 +66,62 @@ class Command(BaseCommand):
                 last_name='TimeCircle',
                 bio='Administrador de la plataforma TimeCircle.',
                 location='Madrid',
-                credits=999,
+                # El admin no necesita créditos de intercambio
+                credits=decimal.Decimal('0.0'),
             )
             self.stdout.write(self.style.SUCCESS('  ✔ Admin creado'))
 
     def _create_users(self):
+        """
+        Créditos de los usuarios demo reflejan el saldo tras su actividad:
+          - Bono primera skill:    +0,5 cr
+          - Bono primer servicio:  +0,5 cr
+          - Bono primer trade:     +1,0 cr (solo offerers)
+          - Créditos de trades completados (positivos/negativos según rol)
+        Los valores aquí son simplificaciones realistas de ese estado.
+        """
         demo_users = [
             {
                 'username': 'maria_garcia', 'email': 'maria@demo.com', 'password': 'Demo1234!',
                 'first_name': 'María', 'last_name': 'García',
                 'bio': 'Profesora jubilada apasionada por la jardinería y la cocina tradicional.',
-                'location': 'Madrid', 'credits': 25, 'completed_trades': 12,
-                'hours_given': 8, 'hours_received': 5,
+                'location': 'Madrid',
+                # Empezó en 0; ganó bonos (+1 cr) y pagó varios servicios
+                'credits': decimal.Decimal('8.0'),
+                'completed_trades': 12, 'hours_given': 8, 'hours_received': 5,
             },
             {
                 'username': 'carlos_lopez', 'email': 'carlos@demo.com', 'password': 'Demo1234!',
                 'first_name': 'Carlos', 'last_name': 'López',
                 'bio': 'Ingeniero informático. Me encanta ayudar con tecnología y dar clases de programación.',
-                'location': 'Barcelona', 'credits': 18, 'completed_trades': 7,
-                'hours_given': 5, 'hours_received': 3,
+                'location': 'Barcelona',
+                'credits': decimal.Decimal('5.5'),
+                'completed_trades': 7, 'hours_given': 5, 'hours_received': 3,
             },
             {
                 'username': 'ana_martinez', 'email': 'ana@demo.com', 'password': 'Demo1234!',
                 'first_name': 'Ana', 'last_name': 'Martínez',
                 'bio': 'Fisioterapeuta y profesora de yoga. Vivo en el barrio de Gracia.',
-                'location': 'Barcelona', 'credits': 32, 'completed_trades': 21,
-                'hours_given': 14, 'hours_received': 8,
+                'location': 'Barcelona',
+                'credits': decimal.Decimal('15.0'),
+                'completed_trades': 21, 'hours_given': 14, 'hours_received': 8,
             },
             {
                 'username': 'pedro_sanchez', 'email': 'pedro@demo.com', 'password': 'Demo1234!',
                 'first_name': 'Pedro', 'last_name': 'Sánchez',
                 'bio': 'Electricista autónomo. Puedo ayudar con instalaciones y reparaciones del hogar.',
-                'location': 'Valencia', 'credits': 10, 'completed_trades': 3,
-                'hours_given': 2, 'hours_received': 1,
+                'location': 'Valencia',
+                # Usuario nuevo: solo tiene los bonos de onboarding + 1 trade
+                'credits': decimal.Decimal('4.0'),
+                'completed_trades': 3, 'hours_given': 2, 'hours_received': 1,
             },
             {
                 'username': 'lucia_fernandez', 'email': 'lucia@demo.com', 'password': 'Demo1234!',
                 'first_name': 'Lucía', 'last_name': 'Fernández',
                 'bio': 'Diseñadora gráfica y fotógrafa. Hablo inglés, francés y español.',
-                'location': 'Sevilla', 'credits': 55, 'completed_trades': 35,
-                'hours_given': 22, 'hours_received': 12,
+                'location': 'Sevilla',
+                'credits': decimal.Decimal('28.5'),
+                'completed_trades': 35, 'hours_given': 22, 'hours_received': 12,
             },
         ]
 
@@ -142,7 +148,6 @@ class Command(BaseCommand):
             skill, _ = Skill.objects.get_or_create(name=name)
             skills.append(skill)
 
-        # Asignar habilidades a usuarios
         assignments = [
             (users[0], ['Jardinería', 'Cocina mediterránea', 'Clases particulares']),
             (users[1], ['Programación Python', 'Diseño Web', 'Inglés']),
@@ -176,7 +181,7 @@ class Command(BaseCommand):
             {
                 'user': users[0], 'type': 'offer',
                 'title': 'Clases de cocina mediterránea',
-                'description': 'Enseño a cocinar platos tradicionales de la cocina española. Paella, gazpacho, tortilla...',
+                'description': 'Enseño a cocinar platos tradicionales de la cocina española.',
                 'category': cat.get('Cocina'), 'duration': 120, 'credits': 2,
                 'tag_names': ['presencial', 'principiantes'],
             },
@@ -190,42 +195,42 @@ class Command(BaseCommand):
             {
                 'user': users[1], 'type': 'offer',
                 'title': 'Clases de programación Python',
-                'description': 'Doy clases de Python desde cero. Puedo ayudarte a aprender programación o con proyectos específicos.',
+                'description': 'Doy clases de Python desde cero.',
                 'category': cat.get('Tecnología'), 'duration': 90, 'credits': 2,
                 'tag_names': ['online', 'principiantes', 'avanzado'],
             },
             {
                 'user': users[2], 'type': 'offer',
                 'title': 'Sesión de yoga para principiantes',
-                'description': 'Clases de yoga adaptadas a principiantes. Trabajamos flexibilidad, respiración y mindfulness.',
+                'description': 'Clases de yoga adaptadas a principiantes.',
                 'category': cat.get('Deporte y Bienestar'), 'duration': 60, 'credits': 1,
                 'tag_names': ['presencial', 'principiantes', 'fines-de-semana'],
             },
             {
                 'user': users[3], 'type': 'offer',
                 'title': 'Revisión eléctrica del hogar',
-                'description': 'Soy electricista certificado. Reviso instalaciones, cambio enchufes, interruptores y luminarias.',
+                'description': 'Soy electricista certificado. Reviso instalaciones.',
                 'category': cat.get('Hogar'), 'duration': 60, 'credits': 2,
                 'tag_names': ['presencial', 'urgente'],
             },
             {
                 'user': users[4], 'type': 'offer',
                 'title': 'Sesión fotográfica de retrato',
-                'description': 'Reportaje fotográfico de 1 hora. Edición incluida. Ideal para redes sociales o uso profesional.',
+                'description': 'Reportaje fotográfico de 1 hora. Edición incluida.',
                 'category': cat.get('Arte y Creatividad'), 'duration': 60, 'credits': 3,
                 'tag_names': ['presencial'],
             },
             {
                 'user': users[4], 'type': 'offer',
                 'title': 'Traducción inglés-español',
-                'description': 'Traduzco documentos del inglés al español y viceversa. Especialidad en textos técnicos y creativos.',
+                'description': 'Traduzco documentos del inglés al español y viceversa.',
                 'category': cat.get('Idiomas'), 'duration': 30, 'credits': 1,
                 'tag_names': ['online', 'flexible'],
             },
             {
                 'user': users[1], 'type': 'request',
                 'title': 'Busco clases de inglés conversacional',
-                'description': 'Quiero mejorar mi inglés hablado. Nivel B1. Prefiero conversación libre sobre temas cotidianos.',
+                'description': 'Quiero mejorar mi inglés hablado. Nivel B1.',
                 'category': cat.get('Idiomas'), 'duration': 60, 'credits': 1,
                 'tag_names': ['online', 'entre-semana'],
             },
@@ -248,33 +253,28 @@ class Command(BaseCommand):
     def _create_trades(self, users, services):
         now = timezone.now()
         trades_data = [
-            # Trade completado: Carlos da clases de Python a María
             {
                 'service': services[2], 'offerer': users[1], 'requester': users[0],
                 'status': 'completed', 'scheduled_date': now - timedelta(days=10),
                 'credits_amount': 2, 'notes': 'Primera sesión de introducción a Python.',
                 'completed_at': now - timedelta(days=10, hours=2),
             },
-            # Trade completado: Ana da yoga a Carlos
             {
                 'service': services[3], 'offerer': users[2], 'requester': users[1],
                 'status': 'completed', 'scheduled_date': now - timedelta(days=5),
                 'credits_amount': 1, 'notes': 'Sesión de yoga matutina.',
                 'completed_at': now - timedelta(days=5, hours=1),
             },
-            # Trade en progreso: Pedro hace revisión eléctrica a Lucía
             {
                 'service': services[4], 'offerer': users[3], 'requester': users[4],
                 'status': 'in_progress', 'scheduled_date': now - timedelta(hours=2),
                 'credits_amount': 2, 'notes': 'Revisión del cuadro eléctrico.',
             },
-            # Trade aceptado: Lucía hace fotos a María
             {
                 'service': services[5], 'offerer': users[4], 'requester': users[0],
                 'status': 'accepted', 'scheduled_date': now + timedelta(days=3),
                 'credits_amount': 3, 'notes': 'Sesión fotográfica en el parque.',
             },
-            # Trade pendiente: María busca ayuda con ordenador
             {
                 'service': services[1], 'offerer': users[1], 'requester': users[0],
                 'status': 'pending', 'scheduled_date': now + timedelta(days=7),
@@ -292,15 +292,21 @@ class Command(BaseCommand):
                 defaults={**data, 'completed_at': completed_at},
             )
 
-            # Crear transacciones para los completados
             if created and trade.status == 'completed':
+                # Transacción normal de créditos
                 Transaction.objects.get_or_create(
                     user=trade.requester, trade=trade,
-                    defaults={'amount': -trade.credits_amount, 'transaction_type': 'debit'},
+                    defaults={
+                        'amount': decimal.Decimal(-trade.credits_amount),
+                        'transaction_type': Transaction.Type.DEBIT,
+                    },
                 )
                 Transaction.objects.get_or_create(
                     user=trade.offerer, trade=trade,
-                    defaults={'amount': trade.credits_amount, 'transaction_type': 'credit'},
+                    defaults={
+                        'amount': decimal.Decimal(trade.credits_amount),
+                        'transaction_type': Transaction.Type.CREDIT,
+                    },
                 )
                 self.stdout.write(f'  ✔ Trade completado: #{trade.pk}')
             elif created:
@@ -326,7 +332,6 @@ class Command(BaseCommand):
         ]
 
         for user1, user2, messages in convs_data:
-            # Obtener o crear conversación
             created_conv = False
             for conv in Conversation.objects.prefetch_related('participants'):
                 ids = sorted(p.id for p in conv.participants.all())

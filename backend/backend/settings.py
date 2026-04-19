@@ -65,6 +65,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',   # Necesario para logout con blacklist
     'drf_spectacular',
     'corsheaders',
+    'channels',
 
     # Proyecto
     'api',
@@ -103,6 +104,17 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'backend.wsgi.application'
+ASGI_APPLICATION = 'backend.asgi.application'
+
+# Channel layer (Redis in production, in-memory fallback for dev)
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            'hosts': [(os.getenv('REDIS_HOST', 'redis'), int(os.getenv('REDIS_PORT', 6379)))],
+        },
+    }
+}
 
 # ── Base de datos ─────────────────────────────────────────
 DATABASES = {
@@ -169,7 +181,7 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_THROTTLE_RATES': {
         'anon': '100/day',
-        'user': '5000/day',
+        'user': '10000/hour',
     },
 }
 

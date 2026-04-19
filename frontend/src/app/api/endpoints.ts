@@ -44,6 +44,8 @@ export const apiGetMe = () => apiFetch('/api/auth/me/');
 export const apiUpdateMe = (data: any) =>
   apiFetch('/api/auth/me/', { method: 'PATCH', body: JSON.stringify(data) });
 
+export const apiGetWSPresenceHandshake = () => apiFetch('/api/auth/ws-handshake/', { method: 'POST' });
+
 // ── USERS ─────────────────────────────────────────────────
 
 export const apiGetUsers = () =>

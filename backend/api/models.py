@@ -1,7 +1,9 @@
 from django.db import models
 from django.db.models import Q, Avg
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth.models import AbstractUser
+import decimal
 
 
 # ─────────────────────────────────────────────
@@ -13,6 +15,11 @@ class User(AbstractUser):
     Usuario de TimeCircle.
     Extiende AbstractUser añadiendo los campos del banco de tiempo.
     Los créditos horarios se transfieren automáticamente al completar un Trade.
+
+    Economía de onboarding (créditos iniciales = 0):
+      +0.5 cr  →  al crear la primera habilidad (skill)
+      +0.5 cr  →  al publicar el primer servicio
+      +1.0 cr  →  al completar el primer intercambio como proveedor (offerer)
     """
 
     class Badge(models.TextChoices):
@@ -26,7 +33,14 @@ class User(AbstractUser):
     location = models.CharField(max_length=100, blank=True, default='')
 
     # ── Economía de créditos ─────────────────
-    credits        = models.IntegerField(default=10)
+    # DecimalField con 1 decimal para soportar bonos de 0,5 cr.
+    # Los nuevos usuarios empiezan con 0 créditos y los ganan completando
+    # acciones de onboarding.
+    credits        = models.DecimalField(
+        max_digits=8,
+        decimal_places=1,
+        default=decimal.Decimal('0.0'),
+    )
     hours_given    = models.PositiveIntegerField(default=0)
     hours_received = models.PositiveIntegerField(default=0)
 
@@ -62,6 +76,16 @@ class User(AbstractUser):
         self.rating        = result['avg'] or 0.00
         self.total_reviews = self.received_reviews.count()
         self.save(update_fields=['rating', 'total_reviews'])
+
+    def award_onboarding_bonus(self, bonus: decimal.Decimal, reason: str) -> None:
+        """
+        Otorga un bono de créditos de onboarding y lo persiste.
+        Uso interno; llamar desde views o serializers tras verificar
+        que la condición de primera vez se cumple.
+        """
+        self.refresh_from_db(fields=['credits'])
+        self.credits += bonus
+        self.save(update_fields=['credits'])
 
 
 # ─────────────────────────────────────────────
@@ -199,13 +223,20 @@ class Trade(models.Model):
 
 class Transaction(models.Model):
     class Type(models.TextChoices):
-        DEBIT  = 'debit',  _('Débito')
-        CREDIT = 'credit', _('Crédito')
+        DEBIT   = 'debit',   _('Débito')
+        CREDIT  = 'credit',  _('Crédito')
+        BONUS   = 'bonus',   _('Bono de onboarding')
 
     user             = models.ForeignKey(User,  on_delete=models.CASCADE, related_name='transactions')
-    trade            = models.ForeignKey(Trade, on_delete=models.CASCADE, related_name='transactions')
-    amount           = models.IntegerField(help_text=_('Positivo = crédito recibido / Negativo = crédito pagado'))
+    trade            = models.ForeignKey(Trade, on_delete=models.CASCADE, related_name='transactions',
+                                         null=True, blank=True)
+    amount           = models.DecimalField(
+        max_digits=8,
+        decimal_places=1,
+        help_text=_('Positivo = crédito recibido / Negativo = crédito pagado'),
+    )
     transaction_type = models.CharField(max_length=10, choices=Type.choices)
+    description      = models.CharField(max_length=200, blank=True, default='')
     created_at       = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -215,7 +246,8 @@ class Transaction(models.Model):
         verbose_name_plural = _('Transacciones')
 
     def __str__(self):
-        return f'{self.user.username} · {self.amount:+d} créditos · Trade #{self.trade_id}'
+        trade_ref = f'Trade #{self.trade_id}' if self.trade_id else 'Bono'
+        return f'{self.user.username} · {self.amount:+} créditos · {trade_ref}'
 
 
 # ─────────────────────────────────────────────
@@ -316,3 +348,62 @@ class ContactMessage(models.Model):
 
     def __str__(self):
         return f'[{self.get_reason_display()}] {self.name} <{self.email}>'
+
+# ─────────────────────────────────────────────
+#  PRESENCIA DE USUARIO (ONLINE / AUSENTE)
+# ─────────────────────────────────────────────
+ 
+class UserPresence(models.Model):
+    """
+    Rastrea el estado en tiempo real de cada usuario.
+ 
+    El frontend envía un heartbeat cada 30 s con el estado ('online' | 'away').
+    Si no llega ningún heartbeat en 5 min, el servidor lo considera 'offline'.
+    El campo typing_in/typing_at registra cuándo el usuario está escribiendo
+    en una conversación concreta; caduca automáticamente a los 5 s.
+    """
+ 
+    class Status(models.TextChoices):
+        ONLINE = 'online', _('En línea')
+        AWAY   = 'away',   _('Ausente')
+ 
+    user        = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name='presence'
+    )
+    status      = models.CharField(
+        max_length=10, choices=Status.choices, default=Status.ONLINE
+    )
+    last_active = models.DateTimeField(default=timezone.now)   # actualizado por heartbeat
+    typing_in   = models.ForeignKey(
+        'Conversation', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+'
+    )
+    typing_at   = models.DateTimeField(null=True, blank=True)  # última pulsación de tecla
+ 
+    class Meta:
+        db_table = 'user_presence'
+        verbose_name = _('Presencia de usuario')
+        verbose_name_plural = _('Presencias de usuarios')
+ 
+    def __str__(self):
+        return f'{self.user.username} · {self.get_status_display()}'
+ 
+    @property
+    def effective_status(self) -> str:
+        """
+        Si el último heartbeat fue hace más de 5 min → offline.
+        En caso contrario devuelve el status que el cliente envió.
+        """
+        elapsed = (timezone.now() - self.last_active).total_seconds()
+        return 'offline' if elapsed > 5 * 60 else self.status
+ 
+    @property
+    def typing_conversation_id(self):
+        """
+        Devuelve el ID de la conversación en la que el usuario está escribiendo,
+        pero solo si la señal de typing llegó hace menos de 5 segundos.
+        """
+        if not self.typing_at or not self.typing_in_id:
+            return None
+        elapsed = (timezone.now() - self.typing_at).total_seconds()
+        return self.typing_in_id if elapsed < 5 else None

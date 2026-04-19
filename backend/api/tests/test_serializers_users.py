@@ -12,6 +12,7 @@ Cubre:
 """
 
 from django.test import TestCase, RequestFactory
+import decimal
 
 from api.models import User, Skill, UserSkill
 from api.serializers import (
@@ -59,7 +60,7 @@ class UserRegistrationSerializerTests(TestCase):
         self.assertTrue(s.is_valid(), s.errors)
         user = s.save()
         self.assertIsInstance(user, User)
-        self.assertEqual(user.credits, 10)
+        self.assertEqual(user.credits, decimal.Decimal('0.0'))
 
     def test_email_normalized_to_lowercase(self):
         s = UserRegistrationSerializer(data=self._valid_data(email="UPPER@EXAMPLE.COM"))

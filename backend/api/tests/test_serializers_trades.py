@@ -13,6 +13,7 @@ Cubre:
 from django.test import TestCase, RequestFactory
 from django.utils import timezone
 from datetime import timedelta
+import decimal
 
 from api.models import Trade, Transaction, Service, User
 from api.serializers import (
@@ -222,7 +223,7 @@ class CreditTransferOnCompleteTests(TestCase):
 
     def test_offerer_credits_increase(self):
         trade, offerer, requester = self._complete_trade(offerer_credits=10, credits_amount=5)
-        self.assertEqual(offerer.credits, 15)
+        self.assertEqual(offerer.credits, decimal.Decimal('16.0'))
 
     def test_completed_at_is_set(self):
         trade, *_ = self._complete_trade()
@@ -231,7 +232,7 @@ class CreditTransferOnCompleteTests(TestCase):
     def test_transactions_created(self):
         trade, *_ = self._complete_trade()
         txs = Transaction.objects.filter(trade=trade)
-        self.assertEqual(txs.count(), 2)
+        self.assertEqual(txs.count(), 3)
 
     def test_debit_transaction_negative(self):
         trade, _, requester = self._complete_trade(credits_amount=3)

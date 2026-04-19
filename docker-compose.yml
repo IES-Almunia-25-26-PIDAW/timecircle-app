@@ -57,6 +57,7 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules
+      - ./.env:/app/.env:ro
     depends_on:
       - backend
     networks:
@@ -74,6 +75,25 @@ services:
     depends_on:
       - frontend
       - backend
+    networks:
+      - timecircle_net
+
+  adminer:
+    image: adminer:latest
+    container_name: timecircle_adminer
+    environment:
+      ADMINER_DEFAULT_DB_DRIVER: pgsql
+      ADMINER_DEFAULT_DB_HOST: db
+      ADMINER_DEFAULT_DB_NAME: ${DB_NAME}
+      ADMINER_DEFAULT_DB_USER: ${DB_USER}
+      ADMINER_DEFAULT_DB_PASSWORD: ${DB_PASSWORD}
+      ADMINER_DESIGN: 'nette'
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8081:8080"
     networks:
       - timecircle_net
 

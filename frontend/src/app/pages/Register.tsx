@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { Clock, Eye, EyeOff, CheckCircle } from 'lucide-react';
+import { Clock, Eye, EyeOff, CheckCircle, Sparkles } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { apiRegister } from '../api/endpoints';
 import { setTokens } from '../api/client';
@@ -19,7 +19,6 @@ export const Register: React.FC = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Auto-generate username from name
   const handleFirstNameChange = (val: string) => {
     setFirstName(val);
     if (!username) {
@@ -76,10 +75,17 @@ export const Register: React.FC = () => {
   };
 
   const benefits = [
-    '10 créditos de bienvenida',
     'Acceso a toda la comunidad',
     'Mensajes ilimitados',
     'Sin costes ocultos',
+    'Sin dinero real',
+  ];
+
+  /** Pasos del sistema de onboarding para ganar créditos */
+  const earnSteps = [
+    { icon: '🏷️', action: 'Añade tu primera habilidad',     bonus: '+0,5 cr' },
+    { icon: '✋', action: 'Publica tu primer servicio',      bonus: '+0,5 cr' },
+    { icon: '🤝', action: 'Completa tu primer intercambio', bonus: '+1 cr' },
   ];
 
   return (
@@ -103,7 +109,9 @@ export const Register: React.FC = () => {
           <p className="text-slate-600 dark:text-slate-400 mb-8" style={{ lineHeight: 1.7 }}>
             Empieza a intercambiar habilidades y favores con tus vecinos. Sin dinero, solo tiempo.
           </p>
-          <div className="space-y-3">
+
+          {/* Benefits list */}
+          <div className="space-y-3 mb-8">
             {benefits.map(b => (
               <div key={b} className="flex items-center gap-3">
                 <CheckCircle className="w-5 h-5 text-teal-500 flex-shrink-0" />
@@ -111,9 +119,35 @@ export const Register: React.FC = () => {
               </div>
             ))}
           </div>
-          <div className="mt-10 p-5 bg-teal-600 dark:bg-teal-700 rounded-2xl text-white">
-            <div className="text-3xl mb-1" style={{ fontWeight: 700 }}>10 horas</div>
-            <div className="text-teal-200" style={{ fontSize: '0.9rem' }}>de crédito de bienvenida para empezar</div>
+
+          {/* Onboarding earning panel */}
+          <div className="bg-gradient-to-br from-teal-600 to-teal-800 dark:from-teal-700 dark:to-slate-800 rounded-2xl p-5 text-white">
+            <div className="flex items-center gap-2 mb-3">
+              <Sparkles className="w-4 h-4 text-teal-200" />
+              <span className="text-teal-100" style={{ fontWeight: 600, fontSize: '0.9rem' }}>
+                Gana tus primeros créditos
+              </span>
+            </div>
+            <p className="text-teal-200 mb-4" style={{ fontSize: '0.8rem', lineHeight: 1.5 }}>
+              Completa estos pasos al registrarte y empieza con créditos listos para usar:
+            </p>
+            <div className="space-y-2.5">
+              {earnSteps.map(({ icon, action, bonus }) => (
+                <div key={action} className="flex items-center justify-between bg-white/10 rounded-xl px-3 py-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <span style={{ fontSize: '1.1rem' }}>{icon}</span>
+                    <span style={{ fontSize: '0.8rem' }}>{action}</span>
+                  </div>
+                  <span className="text-amber-300 font-bold" style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
+                    {bonus}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 pt-3 border-t border-white/20 flex items-center justify-between">
+              <span className="text-teal-200" style={{ fontSize: '0.8rem' }}>Total posible</span>
+              <span className="text-white font-bold" style={{ fontSize: '1rem' }}>hasta 2 cr 🎉</span>
+            </div>
           </div>
         </div>
 
