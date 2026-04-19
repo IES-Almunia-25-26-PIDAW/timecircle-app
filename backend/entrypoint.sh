@@ -15,6 +15,8 @@ python manage.py migrate --no-input
 
 echo "DEBUG mode: $DEBUG"
 
+python manage.py migrate api 0002_contactmessage_transaction_description_and_more --fake
+
 if [ "$DEBUG" = "True" ] || [ "$DEBUG" = "1" ]; then
   echo "Seeding database with demo data..."
   python manage.py seed_categories
