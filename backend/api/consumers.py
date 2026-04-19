@@ -1,5 +1,4 @@
 from channels.generic.websocket import AsyncWebsocketConsumer
-from django.contrib.auth import get_user_model
 from django.core import signing
 from django.utils import timezone
 from datetime import timedelta
