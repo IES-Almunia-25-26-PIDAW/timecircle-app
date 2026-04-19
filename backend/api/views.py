@@ -3,6 +3,7 @@ from rest_framework import viewsets, status, generics, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
+from rest_framework.throttling import UserRateThrottle
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -35,6 +36,15 @@ from .serializers import (
     ReviewSerializer, ReviewCreateSerializer,
     AdminUserSerializer, AdminUserUpdateSerializer, ContactMessageSerializer
 )
+
+# ── Custom Throttles for presence ────────────────────────
+class PresenceThrottle(UserRateThrottle):
+    """Allow 120 requests per minute for presence updates (heartbeat, typing, etc.)"""
+    scope = 'presence'
+    
+    def get_rate(self):
+        """Return the string throttle rate."""
+        return '120/min'
 
 
 # ══════════════════════════════════════════════════════════
@@ -626,6 +636,7 @@ class TradeViewSet(viewsets.ModelViewSet):
 )
 class ConversationViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
+    throttle_classes = [PresenceThrottle]  # Allow more requests for conversations (messages, mark read)
     http_method_names  = ['get', 'post', 'head', 'options', 'patch']
 
     def get_serializer_class(self):
@@ -890,6 +901,7 @@ class PresenceHeartbeatView(generics.GenericAPIView):
     Si no recibe heartbeat en 5 min el servidor considera al usuario 'offline'.
     """
     permission_classes = [IsAuthenticated]
+    throttle_classes = [PresenceThrottle]
 
     @extend_schema(
         summary='Enviar heartbeat de presencia',
@@ -925,6 +937,7 @@ class PresenceTypingView(generics.GenericAPIView):
     La señal caduca automáticamente en el servidor a los 5 s.
     """
     permission_classes = [IsAuthenticated]
+    throttle_classes = [PresenceThrottle]
 
     @extend_schema(
         summary='Actualizar estado de escritura',
@@ -973,6 +986,7 @@ class PresenceStatusView(generics.GenericAPIView):
     si está escribiendo en la conversación indicada.
     """
     permission_classes = [IsAuthenticated]
+    throttle_classes = [PresenceThrottle]
 
     @extend_schema(
         summary='Consultar presencia de un usuario',

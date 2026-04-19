@@ -16,7 +16,7 @@ import {
   apiGetReviews, apiCreateReview,
   apiAdminGetUsers, apiAdminUpdateUser, apiAdminDeleteUser,
 } from '../api/endpoints';
-import { clearTokens, getTokens } from '../api/client';
+import { clearTokens, getTokens, apiFetch } from '../api/client';
 import { createWS } from '../api/wsClient';
 import { apiGetWSPresenceHandshake } from '../api/endpoints';
 
@@ -272,14 +272,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const user = mapUser(meData);
           setCurrentUser(user);
           await loadInitialData(user);
-          // open websocket for presence
+          // open websocket for presence & messages
           try {
             const hs = await apiGetWSPresenceHandshake();
             if (hs?.ws_key) {
               const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
               const host = window.location.host;
               const url = `${proto}://${host}/ws/presence/?ws_key=${encodeURIComponent(hs.ws_key)}`;
-              wsRef.current = createWS(url, (msg: any) => {
+              wsRef.current = createWS(url);
+              wsRef.current.onMessage((msg: any) => {
                 if (msg?.type === 'presence') {
                   setUsers(prev => prev.map(u => (u.id === String(msg.user_id) ? { ...u, presenceStatus: msg.status, isTyping: msg.typing } : u)));
                 }
@@ -298,6 +299,71 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     init();
   }, []);
 
+  // ── GLOBAL PRESENCE TRACKING ──────────────────────────────
+  // Rastrea el estado en línea del usuario actual de forma global,
+  // independientemente de qué página está viendo. Inicia en 'en línea'
+  // al iniciar sesión, pasa a 'ausente' después de 10 min sin actividad,
+  // y se limpia correctamente al desconectarse.
+  useEffect(() => {
+    const TEN_MINS_IN_MS = 10 * 60 * 1000;
+    const HEARTBEAT_INTERVAL_MS = 30 * 1000;
+
+    if (!currentUser) return;
+
+    let currentStatus: 'online' | 'away' = 'online';
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const sendHeartbeat = () => {
+      apiFetch('/api/presence/heartbeat/', {
+        method: 'POST',
+        body: JSON.stringify({ status: currentStatus }),
+      }).catch(() => {});
+    };
+
+    const goAway = () => {
+      currentStatus = 'away';
+      sendHeartbeat();
+    };
+
+    const resetIdle = () => {
+      if (currentStatus === 'away') {
+        currentStatus = 'online';
+        sendHeartbeat();
+      }
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(goAway, TEN_MINS_IN_MS);
+    };
+
+    // Al iniciar sesión: enviar 'en línea'
+    currentStatus = 'online';
+    sendHeartbeat();
+    resetIdle();
+
+    // Latido cada 30 segundos
+    const heartbeatInterval = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
+
+    // Los eventos de actividad resetean el temporizador de inactividad
+    const events: (keyof WindowEventMap)[] = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart'];
+    events.forEach((e) => window.addEventListener(e, resetIdle, { passive: true }));
+
+    // Al descargar/salir: marcar como 'ausente'
+    const handleBeforeUnload = () => {
+      apiFetch('/api/presence/heartbeat/', {
+        method: 'POST',
+        body: JSON.stringify({ status: 'away' }),
+      }).catch(() => {});
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      // Limpieza al desmontar
+      clearInterval(heartbeatInterval);
+      if (idleTimer) clearTimeout(idleTimer);
+      events.forEach((e) => window.removeEventListener(e, resetIdle));
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [currentUser]);
+
   // ── AUTH ─────────────────────────────────────────────────
 
   const login = useCallback(async (username: string, password: string): Promise<boolean> => {
@@ -314,7 +380,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
           const host = window.location.host;
           const url = `${proto}://${host}/ws/presence/?ws_key=${encodeURIComponent(hs.ws_key)}`;
-          wsRef.current = createWS(url, (msg: any) => {
+          wsRef.current = createWS(url);
+          wsRef.current.onMessage((msg: any) => {
             if (msg?.type === 'presence') {
               setUsers(prev => prev.map(u => (u.id === String(msg.user_id) ? { ...u, presenceStatus: msg.status, isTyping: msg.typing } : u)));
             }

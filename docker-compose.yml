@@ -57,6 +57,7 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules
+      - ./.env:/app/.env:ro
     depends_on:
       - backend
     networks:

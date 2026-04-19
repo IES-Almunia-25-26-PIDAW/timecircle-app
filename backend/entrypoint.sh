@@ -10,11 +10,16 @@ echo "DB ready."
 echo "Collecting static files..."
 python manage.py collectstatic --no-input
 
-echo "DEBUG mode: $DEBUG"
-
 echo "Running database migrations..."
 python manage.py migrate --no-input
 
+echo "DEBUG mode: $DEBUG"
+
+if [ "$DEBUG" = "True" ] || [ "$DEBUG" = "1" ]; then
+  echo "Seeding database with demo data..."
+  python manage.py seed_categories
+  python manage.py seed_demo_data
+fi
 echo "Starting ASGI server (channels enabled)..."
 
 gunicorn backend.asgi:application \

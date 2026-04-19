@@ -28,14 +28,6 @@ interface OtherPresence {
 
 // ── Presence API ──────────────────────────────────────────
 
-/** Heartbeat: actualiza tu propio estado en el servidor */
-const apiHeartbeat = (presenceStatus: 'online' | 'away'): void => {
-  apiFetch('/api/presence/heartbeat/', {
-    method: 'POST',
-    body: JSON.stringify({ status: presenceStatus }),
-  }).catch(() => {});
-};
-
 /** Typing: informa al servidor si estás escribiendo en una conversación */
 const apiTypingUpdate = (conversationId: string, isTyping: boolean): void => {
   apiFetch('/api/presence/typing/', {
@@ -239,6 +231,7 @@ export const Messages: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loadingMsgs, setLoadingMsgs] = useState(false);
   const openSnapshotIds = useRef<Set<string>>(new Set());
+  const hasMarkedReadRef = useRef<string | null>(null); // Track which conversation was marked as read
 
   // Real presence of the other user (from API poll)
   const [otherPresence, setOtherPresence] = useState<OtherPresence>({
@@ -257,48 +250,6 @@ export const Messages: React.FC = () => {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const conversations = getUserConversations(currentUser?.id ?? '');
-
-  // ── 1. HEARTBEAT + IDLE DETECTION ─────────────────────
-  // Runs once on component mount (global to the page).
-  useEffect(() => {
-    if (!currentUser) return;
-
-    let currentStatus: 'online' | 'away' = 'online';
-    let idleTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const sendHeartbeat = () => apiHeartbeat(currentStatus);
-
-    const goAway = () => {
-      currentStatus = 'away';
-      sendHeartbeat();
-    };
-
-    const resetIdle = () => {
-      if (currentStatus === 'away') {
-        currentStatus = 'online';
-        sendHeartbeat();
-      }
-      if (idleTimer) clearTimeout(idleTimer);
-      idleTimer = setTimeout(goAway, 10 * 60 * 1000); // 10 min
-    };
-
-    // Initial heartbeat + idle timer
-    sendHeartbeat();
-    resetIdle();
-
-    // Heartbeat interval every 30 s
-    const heartbeatInterval = setInterval(sendHeartbeat, 30_000);
-
-    // Activity events reset idle timer
-    const events: (keyof WindowEventMap)[] = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart'];
-    events.forEach((e) => window.addEventListener(e, resetIdle, { passive: true }));
-
-    return () => {
-      clearInterval(heartbeatInterval);
-      if (idleTimer) clearTimeout(idleTimer);
-      events.forEach((e) => window.removeEventListener(e, resetIdle));
-    };
-  }, [currentUser]);
 
   // ── 2. TYPING SEND ────────────────────────────────────
   // Called whenever messageText changes (from the input handler).
@@ -346,18 +297,9 @@ export const Messages: React.FC = () => {
     const ws = getWsClient?.();
     if (ws) {
       try { ws.subscribe(selectedConvId); } catch (e) {}
-      // Derive presence from users state (updated by AppContext on WS messages)
-      const updateFromUsers = () => {
-        const other = getUserById(otherUserId!);
-        if (other && (other as any).presenceStatus) {
-          setOtherPresence({ status: (other as any).presenceStatus as PresenceStatus, is_typing: Boolean((other as any).isTyping) });
-        }
-      };
-      updateFromUsers();
-      return () => { try { ws.unsubscribe(selectedConvId); } catch (e) {} };
     }
 
-    // Fallback to polling when WS not available
+    // Polling para obtener presencia (se ejecuta siempre, como fallback para WS)
     const poll = async () => {
       const presence = await apiGetPresence(otherUserId, selectedConvId);
       setOtherPresence(presence);
@@ -365,7 +307,13 @@ export const Messages: React.FC = () => {
 
     poll();
     const interval = setInterval(poll, 3000);
-    return () => clearInterval(interval);
+    
+    return () => {
+      clearInterval(interval);
+      if (ws) {
+        try { ws.unsubscribe(selectedConvId); } catch (e) {}
+      }
+    };
   }, [selectedConvId, otherUserId]);
 
   // ── 4. MESSAGES FETCH + POLL (4 s) ────────────────────
@@ -379,7 +327,11 @@ export const Messages: React.FC = () => {
         if (isInitial) {
           setMessages(fetched);
           openSnapshotIds.current = new Set(fetched.map((m) => m.id));
-          markConversationRead(convId);
+          // Mark as read only once per conversation to avoid 429 Too Many Requests
+          if (hasMarkedReadRef.current !== convId) {
+            hasMarkedReadRef.current = convId;
+            markConversationRead(convId).catch(() => {});
+          }
           return;
         }
 
@@ -398,12 +350,49 @@ export const Messages: React.FC = () => {
 
   useEffect(() => {
     if (!selectedConvId) return;
+    
+    // Load initial messages via REST (fallback if WS unavailable)
     setLoadingMsgs(true);
     fetchMessages(selectedConvId, true).finally(() => setLoadingMsgs(false));
 
-    const interval = setInterval(() => fetchMessages(selectedConvId, false), 4000);
-    return () => clearInterval(interval);
-  }, [selectedConvId, fetchMessages]);
+    // Subscribe to real-time messages via WebSocket
+    const ws = getWsClient?.();
+    if (ws) {
+      try {
+        ws.subscribe(selectedConvId);
+        // Listen for new messages from WebSocket
+        const handleWSMessage = (msg: any) => {
+          if (msg?.type === 'message' && msg?.conversation_id === Number(selectedConvId)) {
+            // Add new message from WebSocket
+            const newMsg: Message = {
+              id: String(msg.id),
+              conversationId: String(msg.conversation_id),
+              senderId: String(msg.sender_id),
+              content: msg.content,
+              timestamp: msg.timestamp,
+              read: msg.read ?? false,
+            };
+            setMessages((prev) => {
+              const exists = prev.some(m => m.id === newMsg.id);
+              return exists ? prev : [...prev, newMsg];
+            });
+            // Auto-scroll to new message
+            setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+          }
+        };
+        ws.onMessage(handleWSMessage);
+        return () => {
+          try { ws.unsubscribe(selectedConvId); } catch (e) {}
+        };
+      } catch (e) {
+        // WS not available, polling will still work via fetchMessages
+      }
+    }
+
+    // Note: Polling removed - WebSocket is the only real-time source
+    // If WS unavailable, initial fetch above provides baseline data
+    return () => {};
+  }, [selectedConvId, fetchMessages, getWsClient]);
 
   // ── 5. AUTO-SCROLL ────────────────────────────────────
   useEffect(() => {
@@ -427,20 +416,15 @@ export const Messages: React.FC = () => {
     setSendPulse(true);
     setTimeout(() => setSendPulse(false), 600);
 
-    // Optimistic message
-    const optimisticId = `local-${Date.now()}`;
-    const optimistic: Message = {
-      id: optimisticId,
-      conversationId: selectedConvId,
-      senderId: currentUser?.id ?? '',
-      content: text,
-      timestamp: new Date().toISOString(),
-      read: false,
-    };
-    setMessages((prev) => [...prev, optimistic]);
-    openSnapshotIds.current.add(optimisticId);
-
-    await sendMessage(selectedConvId, text);
+    // Send message via WebSocket (primary path, no REST fallback)
+    const ws = getWsClient?.();
+    if (ws && ws.isConnected?.()) {
+      ws.sendMessage(selectedConvId, text);
+    } else {
+      // If WebSocket not connected, show error to user instead of silently failing
+      console.warn('WebSocket not connected - cannot send message');
+      setMessageText(text); // Restore text for retry
+    }
     inputRef.current?.focus();
   };
 
@@ -458,6 +442,7 @@ export const Messages: React.FC = () => {
     setMessages([]);
     setOtherPresence({ status: 'offline', is_typing: false });
     openSnapshotIds.current = new Set();
+    hasMarkedReadRef.current = null; // Reset for new conversation
     setMessageText('');
   };
 
@@ -704,16 +689,7 @@ export const Messages: React.FC = () => {
 
               {/* Input */}
               <div className="border-t border-slate-100 dark:border-slate-800">
-                {/* "I am typing" indicator — visible only to yourself */}
-                {messageText.length > 0 && (
-                  <div
-                    className="px-5 pt-2 flex items-center gap-1.5 text-teal-600 dark:text-teal-400"
-                    style={{ fontSize: '0.75rem', minHeight: '1.5rem' }}
-                  >
-                    <TypingDots label="Escribiendo" />
-                  </div>
-                )}
-
+                
                 <form onSubmit={handleSend} className="p-4 flex gap-3 items-center">
                   <input
                     ref={inputRef}

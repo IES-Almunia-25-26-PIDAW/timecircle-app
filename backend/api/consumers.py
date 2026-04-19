@@ -105,6 +105,39 @@ class PresenceConsumer(AsyncWebsocketConsumer):
                     )
             except Exception:
                 pass
+        elif action == 'send_message':
+            cid = data.get('conversation_id')
+            content = data.get('content', '').strip()
+            if cid and content:
+                try:
+                    from .models import Message, Conversation
+                    # Verify conversation exists and user is participant
+                    conv = await sync_to_async(Conversation.objects.get)(id=cid)
+                    if self.user in await sync_to_async(lambda: list(conv.participants.all()))():
+                        # Create message
+                        msg = await sync_to_async(Message.objects.create)(
+                            conversation=conv,
+                            sender=self.user,
+                            content=content
+                        )
+                        # Broadcast message to conversation group
+                        await self.channel_layer.group_send(
+                            f'conversation_{cid}',
+                            {
+                                'type': 'message.received',
+                                'id': msg.id,
+                                'conversation_id': cid,
+                                'sender_id': self.user.id,
+                                'sender_name': self.user.get_full_name() or self.user.username,
+                                'sender_avatar': getattr(self.user, 'avatar', ''),
+                                'content': msg.content,
+                                'timestamp': msg.timestamp.isoformat(),
+                                'read': msg.read,
+                            }
+                        )
+                except Exception as e:
+                    logger.error(f'Error sending message: {e}')
+                    pass
         elif action == 'heartbeat':
             status = data.get('status', 'online')
             try:
@@ -135,6 +168,21 @@ class PresenceConsumer(AsyncWebsocketConsumer):
             'user_id': event.get('user_id'),
             'status': event.get('status'),
             'typing': event.get('typing', False),
+        }))
+
+    # Handler for chat messages sent to groups
+    async def message_received(self, event):
+        # Forward message event to client
+        await self.send(text_data=json.dumps({
+            'type': 'message',
+            'id': event.get('id'),
+            'conversation_id': event.get('conversation_id'),
+            'sender_id': event.get('sender_id'),
+            'sender_name': event.get('sender_name'),
+            'sender_avatar': event.get('sender_avatar'),
+            'content': event.get('content'),
+            'timestamp': event.get('timestamp'),
+            'read': event.get('read', False),
         }))
 
     # Helpers
