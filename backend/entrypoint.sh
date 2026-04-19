@@ -10,6 +10,8 @@ echo "DB ready."
 echo "Collecting static files..."
 python manage.py collectstatic --no-input
 
+python manage.py migrate api 0003_userpresence --fake
+
 echo "Running database migrations..."
 python manage.py migrate --no-input
 
