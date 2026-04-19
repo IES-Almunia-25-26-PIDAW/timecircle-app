@@ -136,7 +136,6 @@ class PresenceConsumer(AsyncWebsocketConsumer):
                         )
                 except Exception as e:
                     logger.error(f'Error sending message: {e}')
-                    pass
         elif action == 'heartbeat':
             status = data.get('status', 'online')
             try:
