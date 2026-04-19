@@ -10,12 +10,12 @@ echo "DB ready."
 echo "Collecting static files..."
 python manage.py collectstatic --no-input
 
+python manage.py migrate api 0002_contactmessage_transaction_description_and_more --fake
+
 echo "Running database migrations..."
 python manage.py migrate --no-input
 
 echo "DEBUG mode: $DEBUG"
-
-python manage.py migrate api 0002_contactmessage_transaction_description_and_more --fake
 
 if [ "$DEBUG" = "True" ] || [ "$DEBUG" = "1" ]; then
   echo "Seeding database with demo data..."
