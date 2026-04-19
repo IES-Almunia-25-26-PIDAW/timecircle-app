@@ -103,7 +103,7 @@ class PresenceConsumer(AsyncWebsocketConsumer):
                         }
                     )
             except Exception:
-                pass
+                logger.warning("Failed to process typing update", exc_info=True)
         elif action == 'send_message':
             cid = data.get('conversation_id')
             content = data.get('content', '').strip()
