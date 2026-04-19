@@ -216,7 +216,7 @@ const ConvItem: React.FC<{
 // ══════════════════════════════════════════════════════════
 
 export const Messages: React.FC = () => {
-  const { currentUser, getUserConversations, sendMessage, markConversationRead, getUserById, getWsClient, users } =
+  const { currentUser, getUserConversations, sendMessage, markConversationRead, getUserById, getWsClient } =
     useApp();
 
   const [searchParams] = useSearchParams();
