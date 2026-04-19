@@ -1,7 +1,6 @@
 from channels.generic.websocket import AsyncWebsocketConsumer
 from django.core import signing
 from django.utils import timezone
-from datetime import timedelta
 import json
 
 from asgiref.sync import sync_to_async
