@@ -9,6 +9,7 @@ Cubre:
 """
 
 from django.test import TestCase
+import decimal
 
 from api.models import Transaction
 from api.serializers import TransactionSerializer
@@ -33,12 +34,12 @@ class TransactionSerializerTests(TestCase):
     def test_credit_transaction_amount_positive(self):
         tx   = self._get_tx(Transaction.Type.CREDIT)
         data = TransactionSerializer(tx).data
-        self.assertGreater(data["amount"], 0)
+        self.assertGreater(decimal.Decimal(data["amount"]), 0)
 
     def test_debit_transaction_amount_negative(self):
         tx   = self._get_tx(Transaction.Type.DEBIT)
         data = TransactionSerializer(tx).data
-        self.assertLess(data["amount"], 0)
+        self.assertLess(decimal.Decimal(data["amount"]), 0)
 
     def test_trade_id_field(self):
         tx   = self._get_tx(Transaction.Type.CREDIT)
