@@ -281,6 +281,21 @@ export const Messages: React.FC = () => {
     [selectedConvId],
   );
 
+  // ── 2b. TYPING HEARTBEAT ──────────────────────────────
+  // Mantiene el estado "escribiendo" refrescado mientras el usuario tiene texto.
+  // El backend expira el typing después de 5 segundos, así que enviamos un
+  // heartbeat cada 3 segundos mientras messageText.length > 0.
+  useEffect(() => {
+    if (!selectedConvId || messageText.length === 0) return;
+
+    // Enviar typing heartbeat cada 3 segundos
+    const typingHeartbeat = setInterval(() => {
+      apiTypingUpdate(selectedConvId, true);
+    }, 3000);
+
+    return () => clearInterval(typingHeartbeat);
+  }, [messageText, selectedConvId]);
+
   // ── 3. PRESENCE POLL (3 s) ────────────────────────────
   const selectedConv = conversations.find((c) => c.id === selectedConvId);
   const otherUserId = selectedConv?.participants.find((p) => p !== currentUser?.id);
