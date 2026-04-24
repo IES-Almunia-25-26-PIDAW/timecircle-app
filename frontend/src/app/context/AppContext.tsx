@@ -583,9 +583,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
     if (existing) return existing.id;
     try {
+      const currentUserId = parseInt(currentUser.id, 10);
+      const otherId = parseInt(otherUserId, 10);
+      if (Number.isNaN(currentUserId) || Number.isNaN(otherId)) {
+        console.error('Start conversation error: invalid user id(s)', {
+          currentUserId: currentUser.id,
+          otherUserId,
+        });
+        return '';
+      }
       const res = await apiCreateConversation([
-        parseInt(currentUser.id),
-        parseInt(otherUserId),
+        currentUserId,
+        otherId,
       ]);
       const conv = mapConversation(res);
       setConversations(prev => {
