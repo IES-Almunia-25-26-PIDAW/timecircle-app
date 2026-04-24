@@ -396,7 +396,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const logout = useCallback(() => {
     apiLogout();
-    try { wsRef.current?.close(); } catch (e) {}
+    try { wsRef.current?.close(); } catch (e) { console.error('WebSocket close error during logout', e); }
     setCurrentUser(null);
     setUsers([]);
     setServices([]);
