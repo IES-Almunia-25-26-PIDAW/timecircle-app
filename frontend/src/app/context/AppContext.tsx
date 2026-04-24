@@ -510,8 +510,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const createTrade = useCallback(async (trade: Omit<Trade, 'id' | 'createdAt'>) => {
     try {
+      const serviceIdNum = parseInt(trade.serviceId, 10);
+      if (Number.isNaN(serviceIdNum)) {
+        console.error('Create trade error: invalid serviceId', trade.serviceId);
+        return;
+      }
+
       const payload = {
-        service_id: parseInt(trade.serviceId),
+        service_id: serviceIdNum,
         scheduled_date: new Date(trade.scheduledDate).toISOString(),
         credits_amount: trade.creditsAmount,
         notes: trade.notes || '',
