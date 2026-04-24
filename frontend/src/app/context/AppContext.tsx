@@ -295,7 +295,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     };
     init();
-  }, []);
+  }, [loadInitialData]);
 
   // ── GLOBAL PRESENCE TRACKING ──────────────────────────────
   // Rastrea el estado en línea del usuario actual de forma global,
