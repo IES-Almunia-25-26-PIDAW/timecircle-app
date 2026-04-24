@@ -3,7 +3,7 @@
 
 # TimeCircle – Banco de Tiempo
 
-<img width="1024" height="1024" alt="ChatGPT Image 11 dic 2025, 18_23_33" src="https://github.com/user-attachments/assets/b26b1fa0-bc4c-4b01-a961-715b9eacfd9e" />
+<img width="512" height="512" alt="Logo TimeCircle" src="https://github.com/user-attachments/assets/b26b1fa0-bc4c-4b01-a961-715b9eacfd9e" />
 
 #### Proyecto TFG DAM · Aplicación Web Full-Stack
 
@@ -17,6 +17,7 @@
     - [Base de datos](#Base-de-datos)
     - [Autenticación](#Autenticación)
     - [Documentación API](#Documentación-API)
+    - [Entorno de Pruebas](#entorno-de-pruebas)
     - [Despliegue](#Despliegue)
     - [Versionado](#Versionado)
     - [CI/CD](#CICD)
@@ -24,7 +25,6 @@
 - [⚙️ Instalación y ejecución](#⚙️-Instalación-y-ejecución)
   - [Docker](#Docker)
     - [Servicios incluidos](#Servicios-incluidos)
-    - [docker-compose.yml](#docker-composeyml)
     - [Paso a paso](#Paso-a-paso)
   - [Backend](#Backend-1)
     - [1️⃣ Clonar el repositorio](#1️⃣-Clonar-el-repositorio)
@@ -69,8 +69,9 @@ El objetivo del proyecto es facilitar la colaboración entre usuarios, mejorar l
 ### Frontend
 
 ![React](https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=fff&style=for-the-badge)
 ![Node.js](https://img.shields.io/badge/Node.js-339933?logo=node.js&logoColor=white&style=for-the-badge)
-![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?logo=javascript&logoColor=000&style=for-the-badge)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=fff&style=for-the-badge)
 
 ### Backend
 
@@ -91,10 +92,14 @@ El objetivo del proyecto es facilitar la colaboración entre usuarios, mejorar l
 ![Swagger](https://img.shields.io/badge/Swagger-85EA2D?style=for-the-badge&logo=swagger&logoColor=black)
 ![DRF Spectacular](https://img.shields.io/badge/DRF_Spectacular-1f6feb?style=for-the-badge)
 
-### Despliegue
+### Entorno de Pruebas
 
 ![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
 ![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)
+
+### Despliegue
+
+![AWS](https://img.shields.io/badge/AWS-232F3E?logo=amazon-aws&logoColor=white&style=for-the-badge)
 
 ### Versionado
 
@@ -111,145 +116,12 @@ El objetivo del proyecto es facilitar la colaboración entre usuarios, mejorar l
 > - Integración con redes sociales.
 > - Aplicación móvil nativa (solo version web responsive).
 
-# Variables de entorno
-
-Las variables se definen en un archivo `.env` en la raíz del proyecto. Están ordenadas de mayor a menor importancia.
-
-| Variable                          | Tipo      | Descripción                                                                                                             |
-|-----------------------------------|-----------|-------------------------------------------------------------------------------------------------------------------------|
-| `SECRET_KEY`                      | String    | Llave secreta de Django/JWT. Mínimo 50 caracteres en producción.                                                        |
-| `DEBUG`                           | Bool      | Activa el modo debug. Usar `False` en producción.                                                                       |
-| `ALLOWED_HOSTS`                   | String[]  | Hosts que pueden acceder al servidor (separados por coma).                                                              |
-| `CORS_ALLOWED_ORIGINS`            | String[]  | Orígenes que CORS permite acceder (separados por coma).                                                                 |
-| `CORS_ALLOWED_ORIGIN_REGEXES`     | String[]  | Patrones regex de orígenes permitidos por CORS (separados por `\|`). Útil para URLs dinámicas como previews de Vercel.  |
-| `DB_NAME`                         | String    | Nombre de la base de datos PostgreSQL.                                                                                  |
-| `DB_USER`                         | String    | Usuario de la base de datos.                                                                                            |
-| `DB_PASSWORD`                     | String    | Contraseña de la base de datos.                                                                                         |
-| `DB_HOST`                         | String    | Host de la base de datos (`db` en Docker, `localhost` en local).                                                        |
-| `DB_PORT`                         | String    | Puerto de la base de datos (por defecto `5432`).                                                                        |
-| `REDIS_HOST`                      | String    | Host de Redis (`redis` en Docker, `localhost` en local).                                                                |
-| `NGINX_PORT`                      | Int       | Puerto del host en el que Nginx estará disponible (por defecto `8080`).                                                 |
-| `REDIS_PORT`                      | String    | Puerto de Redis (por defecto `6379`).                                                                                   |
-
 # ⚙️ Instalación y ejecución
 
 ## Docker
 
 > [!TIP]
 > Esta es la forma **recomendada** de ejecutar el proyecto. Docker garantiza portabilidad, aislamiento y consistencia entre entornos.
-
-### Servicios incluidos
-
-El `docker-compose.yml` levanta los siguientes contenedores:
-
-| Servicio    | Imagen            | Puerto en host           | Descripción                         |
-|-------------|-------------------|--------------------------|-------------------------------------|
-| `db`        | `postgres:alpine` | —                        | Base de datos PostgreSQL (interno)  |
-| `redis`     | `redis:7-alpine`  | —                        | Caché y broker de mensajes (interno)|
-| `backend`   | Dockerfile local  | —                        | API Django REST (interno)           |
-| `frontend`  | Dockerfile local  | —                        | App React / Vite (interno)          |
-| `nginx`     | `nginx:alpine`    | `NGINX_PORT` (def. 8080) | Proxy inverso · punto de entrada    |
-> [!NOTE]
-> El backend y la base de datos incluyen **healthchecks** automáticos. El backend no arrancará hasta que PostgreSQL y Redis estén listos.
-
-> [!NOTE]
-> Solo Nginx exponen puertos al host. El backend y el frontend se comunican exclusivamente a través de la red interna `timecircle_net`, lo que reduce la superficie de ataque y evita conflictos con servicios como Apache o Nginx ya instalados en la máquina.
-
-### docker-compose.yml
-
-```yaml
-services:
-  db:
-    image: postgres:alpine
-    container_name: timecircle_db
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${DB_NAME}
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - timecircle_net
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  redis:
-    image: redis:7-alpine
-    container_name: timecircle_redis
-    restart: unless-stopped
-    networks:
-      - timecircle_net
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: timecircle_backend
-    restart: unless-stopped
-    volumes:
-      - ./backend:/app
-      - static_files:/app/static
-    env_file:
-      - ./.env
-    environment:
-      - SECURE_SSL_REDIRECT=False
-      - SESSION_COOKIE_SECURE=False
-      - CSRF_COOKIE_SECURE=False
-      - SECURE_HSTS_SECONDS=0
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - timecircle_net
-
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: timecircle_frontend
-    restart: unless-stopped
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    depends_on:
-      - backend
-    networks:
-      - timecircle_net
-
-  nginx:
-    image: nginx:alpine
-    container_name: timecircle_nginx
-    restart: unless-stopped
-    volumes:
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
-      - static_files:/app/static:ro
-    ports:
-      - "${NGINX_PORT:-8080}:80"
-    depends_on:
-      - frontend
-      - backend
-    networks:
-      - timecircle_net
-
-volumes:
-  postgres_data:
-  static_files:
-
-networks:
-  timecircle_net:
-    driver: bridge
-```
 
 ### Paso a paso
 
@@ -268,32 +140,12 @@ Copia el archivo de ejemplo y rellena tus valores:
 cp .env.example .env
 ```
 
-El `.env` debe quedar en la **raíz del proyecto** (junto al `docker-compose.yml`):
-
-```
-timecircle-app/
-├── .env               ← aquí
-├── docker-compose.yml
-├── backend/
-└── frontend/
-```
-
-> [!TIP]
-> Para generar un `SECRET_KEY` válido ejecuta:
-> ```bash
-> python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
-> ```
+El `.env` debe quedar en la **raíz del proyecto**.
 
 **3️⃣ Construir y levantar todos los servicios**
 
 ```bash
 docker compose up --build
-```
-
-Para ejecutarlo en segundo plano (detached):
-
-```bash
-docker compose up --build -d
 ```
 
 **4️⃣ Aplicar migraciones y cargar datos de prueba**
@@ -305,32 +157,6 @@ docker compose exec backend python manage.py migrate
 docker compose exec backend python manage.py seed_categories
 docker compose exec backend python manage.py seed_demo_data
 ```
-
-**5️⃣ Acceder a la aplicación**
-
-| URL                                        | Descripción                        |
-|--------------------------------------------|------------------------------------|
-| `http://localhost:8080`                    | Aplicación principal (vía Nginx)   |
-| `http://localhost:8080/api/`               | API REST Django                    |
-| `http://localhost:8080/api/docs/`          | Documentación Swagger              |
-
-> [!NOTE]
-> El puerto `8080` es el valor por defecto. Si ya está en uso en tu máquina, cámbialo en el `.env` con `NGINX_PORT` antes de arrancar.
-
-**6️⃣ Parar los servicios**
-
-```bash
-docker compose down
-```
-
-Para también eliminar los volúmenes (base de datos incluida):
-
-```bash
-docker compose down -v
-```
-
-> [!WARNING]
-> El flag `-v` **borra todos los datos** de PostgreSQL. Úsalo solo si quieres un entorno limpio.
 
 ---
 
@@ -407,19 +233,7 @@ cd frontend/
 npm install
 ```
 
-### 2️⃣ Configurar .env
-
-Crea un archivo `.env` dentro de `frontend/` con la URL de la API:
-
-```dotenv
-VITE_API_URL=http://localhost:8080
-```
-
-> [!NOTE]
-> Si cambiaste `NGINX_PORT` en el `.env` raíz, actualiza también este valor para que coincidan.
-
-
-### 3️⃣ Ejecutar servidor
+### 2️⃣ Ejecutar servidor
 
 ```bash
 npm run dev
