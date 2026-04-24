@@ -3,7 +3,7 @@
 <img width="512" height="512" alt="Logo TimeCircle" src="https://github.com/user-attachments/assets/b26b1fa0-bc4c-4b01-a961-715b9eacfd9e" />
 
 # Índice
-  - [Variables de Entrono](#variables-de-entorno)
+  - [Variables de Entorno](#variables-de-entorno)
   - [Servicios incluidos](#servicios-incluidos)
     - [Docker Compose](#docker-composeyml)
     - [Dockerfiles](#dockerfiles)
