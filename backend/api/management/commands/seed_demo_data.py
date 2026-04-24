@@ -52,7 +52,7 @@ class Command(BaseCommand):
         self._create_reviews(users, trades)
 
         self.stdout.write(self.style.SUCCESS('\n✔ Datos de demo creados correctamente.'))
-        self.stdout.write('  Admin: admin@timecircle.com / Admin1234!')
+        self.stdout.write('  Admin: admin / Admin1234!')
 
     # ── Helpers ────────────────────────────────────────────
 
