@@ -90,7 +90,7 @@ class PresenceConsumer(AsyncWebsocketConsumer):
                     else:
                         presence.typing_in = None
                         presence.typing_at = None
-                    presence.save()
+                    await sync_to_async(presence.save)()
                     # Broadcast typing state to conversation group
                     await self.channel_layer.group_send(
                         f'conversation_{cid}',
