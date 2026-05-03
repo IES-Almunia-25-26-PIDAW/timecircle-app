@@ -29,6 +29,17 @@ services:
       timeout: 5s
       retries: 5
 
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: timecircle_mailpit
+    restart: unless-stopped
+    ports:
+      - "8025:8025" # Web UI
+      - "1025:1025" # SMTP
+    networks:
+      - timecircle_net
+    # Lightweight, no volumes required (captures SMTP traffic in memory)
+
   backend:
     build:
       context: ./backend

@@ -20,10 +20,13 @@ from datetime import timedelta
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from django.core import signing
+import random
+from django.conf import settings
+from django.core.mail import send_mail
 
 from .models import (
     User, Category, Tag, Skill, Service, Trade, Transaction,
-    Conversation, Message, Review, ContactMessage, UserPresence
+    Conversation, Message, Review, ContactMessage
 )
 from .serializers import (
     UserRegistrationSerializer, UserSerializer, UserUpdateSerializer, UserRankingSerializer,
@@ -34,8 +37,10 @@ from .serializers import (
     TransactionSerializer,
     ConversationSerializer, MessageSerializer, MessageCreateSerializer,
     ReviewSerializer, ReviewCreateSerializer,
-    AdminUserSerializer, AdminUserUpdateSerializer, ContactMessageSerializer
+    AdminUserSerializer, AdminUserUpdateSerializer, ContactMessageSerializer,
+    PasswordResetRequestSerializer, PasswordResetConfirmSerializer
 )
+
 
 # ── Custom Throttles for presence ────────────────────────
 class PresenceThrottle(UserRateThrottle):
@@ -169,6 +174,8 @@ class LogoutView(generics.GenericAPIView):
             token.blacklist()
             # Marcar presencia como offline inmediatamente y limpiar typing
             try:
+                # Import here to avoid import-time cycles when Django loads URLconf
+                from .models import UserPresence
                 presence = UserPresence.objects.filter(user=request.user).first()
                 if presence:
                     # Forzar estado offline usando last_active > 5min
@@ -201,6 +208,99 @@ class LogoutView(generics.GenericAPIView):
                 {'detail': 'Token inválido o expirado.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+
+@extend_schema(tags=['Auth'])
+class RequestPasswordResetView(generics.GenericAPIView):
+    """Genera un código de 6 dígitos y lo envía por correo al usuario."""
+    permission_classes = [AllowAny]
+    serializer_class = PasswordResetRequestSerializer
+
+    @extend_schema(
+        summary='Solicitar código de restablecimiento',
+        request=PasswordResetRequestSerializer,
+        responses={200: OpenApiResponse(description='Código enviado al correo')},
+    )
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        email = serializer.validated_data['email'].lower()
+        try:
+            user = User.objects.get(email__iexact=email)
+        except User.DoesNotExist:
+            return Response({'detail': 'No existe una cuenta con ese correo.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        code = f"{random.randint(0, 999999):06d}"
+        # Import here to avoid import-time cycles when Django loads URLconf
+        from .models import PasswordResetCode
+        PasswordResetCode.objects.create(user=user, code=code)
+
+        subject = 'TimeCircle — Código de restablecimiento de contraseña'
+        message = (
+            f'Hola {user.get_full_name() or user.username},\n\n'
+            f'Usa este código para restablecer tu contraseña: {code}\n\n'
+            'El código expira en 15 minutos. Si no solicitaste este correo, ignóralo.'
+        )
+        html_message = f"""
+        <!doctype html>
+        <html>
+        <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <title>Restablecer contraseña</title>
+        </head>
+        <body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;background:#f3f4f6;color:#0f172a;">
+        <table width="100%" cellpadding="0" cellspacing="0">
+        <tr><td align="center" style="padding:24px;">
+            <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;">
+                <tr>
+                    <td style="background:linear-gradient(90deg,#059669,#0ea5a5);padding:24px;text-align:left;color:#fff;">
+                        <h1 style="margin:0;font-size:20px;">TimeCircle</h1>
+                    </td>
+                </tr>
+                <tr>
+                    <td style="padding:24px;color:#0f172a;">
+                        <p style="font-size:16px;margin:0 0 8px;">Hola {user.get_full_name() or user.username},</p>
+                        <p style="font-size:16px;margin:0 0 16px;">Usa este código para restablecer tu contraseña:</p>
+                        <div style="font-size:22px;font-weight:700;background:#f8fafc;padding:16px;border-radius:8px;text-align:center;letter-spacing:4px;">{code}</div>
+                        <p style="font-size:14px;color:#6b7280;margin-top:16px;">El código expira en 15 minutos. Si no solicitaste este correo, ignóralo.</p>
+                        <hr style="border:none;border-top:1px solid #eef2f7;margin:18px 0;">
+                        <p style="font-size:13px;color:#94a3b8;margin:0;">Si tienes problemas, responde a <a style="color:#3b82f6;text-decoration:underline;" href="mailto:soporte@timecircle.app">soporte@timecircle.app</a></p>
+                        <p style="font-size:13px;color:#94a3b8;margin:0;">© TimeCircle</p>
+                    </td>
+                </tr>
+            </table>
+        </td></tr>
+        </table>
+        </body>
+        </html>
+        """
+        from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', None) or settings.EMAIL_HOST_USER or 'no-reply@timecircle.app'
+        try:
+                send_mail(subject, message, from_email, [user.email], fail_silently=False, html_message=html_message)
+        except Exception:
+                return Response({'detail': 'Error al enviar el correo.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({'detail': 'Código enviado al correo.'})
+
+
+@extend_schema(tags=['Auth'])
+class ConfirmPasswordResetView(generics.GenericAPIView):
+    """Valida el código y actualiza la contraseña del usuario."""
+    permission_classes = [AllowAny]
+    serializer_class = PasswordResetConfirmSerializer
+
+    @extend_schema(
+        summary='Confirmar código y cambiar contraseña',
+        request=PasswordResetConfirmSerializer,
+        responses={200: OpenApiResponse(description='Contraseña actualizada correctamente')},
+    )
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response({'detail': 'Contraseña actualizada correctamente.'})
 
 
 @extend_schema(tags=['Auth'])
