@@ -295,7 +295,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     };
     init();
-  }, []);
+  }, [loadInitialData]);
 
   // ── GLOBAL PRESENCE TRACKING ──────────────────────────────
   // Rastrea el estado en línea del usuario actual de forma global,
@@ -396,7 +396,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const logout = useCallback(() => {
     apiLogout();
-    try { wsRef.current?.close(); } catch (e) {}
+    try { wsRef.current?.close(); } catch (e) { console.error('WebSocket close error during logout', e); }
     setCurrentUser(null);
     setUsers([]);
     setServices([]);
@@ -510,8 +510,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const createTrade = useCallback(async (trade: Omit<Trade, 'id' | 'createdAt'>) => {
     try {
+      const serviceIdNum = parseInt(trade.serviceId, 10);
+      if (Number.isNaN(serviceIdNum)) {
+        console.error('Create trade error: invalid serviceId', trade.serviceId);
+        return;
+      }
+
       const payload = {
-        service_id: parseInt(trade.serviceId),
+        service_id: serviceIdNum,
         scheduled_date: new Date(trade.scheduledDate).toISOString(),
         credits_amount: trade.creditsAmount,
         notes: trade.notes || '',
@@ -583,9 +589,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
     if (existing) return existing.id;
     try {
+      const currentUserId = parseInt(currentUser.id, 10);
+      const otherId = parseInt(otherUserId, 10);
+      if (Number.isNaN(currentUserId) || Number.isNaN(otherId)) {
+        console.error('Start conversation error: invalid user id(s)', {
+          currentUserId: currentUser.id,
+          otherUserId,
+        });
+        return '';
+      }
       const res = await apiCreateConversation([
-        parseInt(currentUser.id),
-        parseInt(otherUserId),
+        currentUserId,
+        otherId,
       ]);
       const conv = mapConversation(res);
       setConversations(prev => {
