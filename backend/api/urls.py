@@ -53,6 +53,7 @@ from .views import (
     AdminStatsView, AdminUserViewSet, ContactView,
     # Presencia — añadir al import de views.py
     PresenceHeartbeatView, PresenceTypingView, PresenceStatusView,
+    RequestPasswordResetView, ConfirmPasswordResetView,
 )
 
 # ── Router principal ──────────────────────────────────────
@@ -76,6 +77,8 @@ urlpatterns = [
     path('auth/me/',       MeView.as_view(),             name='auth-me'),
     path('auth/logout/',   LogoutView.as_view(),         name='auth-logout'),
     path('auth/ws-handshake/', WSPresenceHandshakeView.as_view(), name='auth-ws-handshake'),
+    path('auth/request-password-reset/', RequestPasswordResetView.as_view(), name='auth-request-password-reset'),
+    path('auth/confirm-password-reset/', ConfirmPasswordResetView.as_view(), name='auth-confirm-password-reset'),
 
     # Presencia en tiempo real (polling)
     path('presence/heartbeat/', PresenceHeartbeatView.as_view(), name='presence-heartbeat'),

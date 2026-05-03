@@ -12,11 +12,16 @@ Cambios respecto a la configuración original:
 from pathlib import Path
 from datetime import timedelta
 import os
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
 # ── Rutas base ────────────────────────────────────────────
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-load_dotenv(BASE_DIR / ".env", override=True)
+# Ajustamos la búsqueda del .env para funcionar tanto en desarrollo local
+# como cuando el código está montado en /app dentro del contenedor.
+BASE_DIR = Path(__file__).resolve().parent.parent
+# Intentar localizar automáticamente un .env (sube hasta /), y si no se
+# encuentra, usar el .env dentro de la carpeta de la app (/app/.env).
+env_path = find_dotenv() or (BASE_DIR / ".env")
+load_dotenv(env_path, override=True)
 
 # ── Seguridad ─────────────────────────────────────────────
 _DEFAULT_SECRET_KEY     = 'django-insecure-CHANGE-ME-in-production'
@@ -270,3 +275,16 @@ SPECTACULAR_SETTINGS = {
         'displayRequestDuration': True,
     }
 }
+
+
+# ── Email / SMTP ────────────────────────────────────────────
+# Configurables vía .env. Por defecto en desarrollo usamos el backend
+# de consola para no requerir credenciales SMTP.
+EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
+EMAIL_HOST = os.getenv('EMAIL_HOST', '')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', 587))
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True') == 'True'
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'no-reply@timecircle.app')
+

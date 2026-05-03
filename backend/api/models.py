@@ -353,6 +353,29 @@ class ContactMessage(models.Model):
 #  PRESENCIA DE USUARIO (ONLINE / AUSENTE)
 # ─────────────────────────────────────────────
  
+
+class PasswordResetCode(models.Model):
+    """
+    Código numérico de 6 dígitos para restablecimiento de contraseña.
+    Uso único y con expiración (15 minutos).
+    """
+
+    user       = models.ForeignKey(User, on_delete=models.CASCADE, related_name='password_reset_codes')
+    code       = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    used       = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = 'password_reset_code'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.user.email} · {self.code} · {"used" if self.used else "active"}'
+
+    def is_expired(self) -> bool:
+        return (timezone.now() - self.created_at).total_seconds() > 15 * 60
+
+ 
 class UserPresence(models.Model):
     """
     Rastrea el estado en tiempo real de cada usuario.

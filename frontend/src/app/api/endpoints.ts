@@ -1,4 +1,4 @@
-import { apiFetch, setTokens, clearTokens, getTokens } from './client';
+import { apiFetch, setTokens, clearTokens, getTokens, BASE_URL } from './client';
 
 // ── AUTH ──────────────────────────────────────────────────
 
@@ -45,6 +45,28 @@ export const apiUpdateMe = (data: any) =>
   apiFetch('/api/auth/me/', { method: 'PATCH', body: JSON.stringify(data) });
 
 export const apiGetWSPresenceHandshake = () => apiFetch('/api/auth/ws-handshake/', { method: 'POST' });
+
+export const apiRequestPasswordReset = async (email: string) => {
+  const res = await fetch(`${BASE_URL}/api/auth/request-password-reset/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  if (res.ok) return res.json();
+  const err = await res.json().catch(() => ({}));
+  throw err;
+};
+
+export const apiConfirmPasswordReset = async (email: string, code: string, new_password: string) => {
+  const res = await fetch(`${BASE_URL}/api/auth/confirm-password-reset/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, code, new_password }),
+  });
+  if (res.ok) return res.json();
+  const err = await res.json().catch(() => ({}));
+  throw err;
+};
 
 // ── USERS ─────────────────────────────────────────────────
 

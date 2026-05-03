@@ -4,12 +4,14 @@ import { router } from './routes';
 import { AppProvider } from './context/AppContext';
 import { SpeedInsights } from '@vercel/speed-insights/react';
 import { Analytics } from '@vercel/analytics/react';
+import { Toaster } from './components/ui/sonner';
 
 export default function App() {
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <AppProvider>
         <RouterProvider router={router} />
+        <Toaster />
         <SpeedInsights />
       </AppProvider>
       <Analytics />

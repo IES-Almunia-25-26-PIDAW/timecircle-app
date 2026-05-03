@@ -6,8 +6,9 @@ from django.utils import timezone
 
 from .models import (
     User, Category, Tag, Skill, UserSkill, Service, Trade,
-    Transaction, Conversation, Message, Review, ContactMessage
+    Transaction, Conversation, Message, Review, ContactMessage, PasswordResetCode
 )
+
 
 
 # ══════════════════════════════════════════════════════════
@@ -652,3 +653,60 @@ class ContactMessageSerializer(serializers.ModelSerializer):
         if value not in valid:
             raise serializers.ValidationError(f'Motivo inválido. Opciones: {valid}')
         return value
+
+
+# ─────────────────────────────────────────────
+#  PASSWORD RESET
+# ─────────────────────────────────────────────
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value: str) -> str:
+        try:
+            User.objects.get(email__iexact=value)
+        except User.DoesNotExist:
+            raise serializers.ValidationError('No existe ninguna cuenta con este correo electrónico.')
+        return value.lower()
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    code = serializers.CharField(max_length=6)
+    new_password = serializers.CharField(write_only=True)
+
+    def validate(self, attrs: dict) -> dict:
+        email = attrs.get('email', '').lower()
+        code = attrs.get('code', '').strip()
+
+        try:
+            user = User.objects.get(email__iexact=email)
+        except User.DoesNotExist:
+            raise serializers.ValidationError({'email': 'Usuario no encontrado.'})
+
+        prc = PasswordResetCode.objects.filter(user=user, code=code, used=False).order_by('-created_at').first()
+        if not prc:
+            raise serializers.ValidationError({'code': 'Código inválido o ya usado.'})
+        if prc.is_expired():
+            raise serializers.ValidationError({'code': 'El código ha expirado.'})
+
+        # Validar contraseña con las reglas del proyecto
+        validate_password(attrs.get('new_password'), user=user)
+
+        attrs['user'] = user
+        attrs['prc'] = prc
+        return attrs
+
+    def save(self) -> User:
+        user = self.validated_data['user']
+        prc = self.validated_data['prc']
+        new_password = self.validated_data['new_password']
+
+        user.set_password(new_password)
+        user.save(update_fields=['password'])
+
+        prc.used = True
+        prc.save(update_fields=['used'])
+
+        return user
