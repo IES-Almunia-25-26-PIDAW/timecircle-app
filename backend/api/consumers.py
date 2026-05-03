@@ -38,7 +38,7 @@ class PresenceConsumer(AsyncWebsocketConsumer):
                 return
         else:
             # Reject anonymous WS connections
-            print('WS connect: missing ws_key')
+            logger.warning('WS connect: missing ws_key')
             await self.close(code=4003)
             return
 
