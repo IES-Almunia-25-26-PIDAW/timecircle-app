@@ -43,7 +43,7 @@ class PresenceConsumer(AsyncWebsocketConsumer):
             return
 
         if not user:
-            print('WS connect: user not found for ws_key payload:', repr(ws_key))
+            logger.warning('WS connect: user not found for provided ws_key payload')
             await self.close(code=4004)
             return
 
