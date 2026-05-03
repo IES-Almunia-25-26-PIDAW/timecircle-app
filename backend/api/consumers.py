@@ -29,7 +29,7 @@ class PresenceConsumer(AsyncWebsocketConsumer):
                 user_id = payload.get('user_id')
                 user = await self.get_user(user_id)
             except signing.SignatureExpired:
-                print('WS connect: ws_key expired')
+                logger.warning("WS connect: ws_key expired")
                 await self.close(code=4001)
                 return
             except signing.BadSignature:
