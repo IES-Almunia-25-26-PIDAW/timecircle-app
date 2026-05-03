@@ -142,7 +142,7 @@ class PresenceConsumer(AsyncWebsocketConsumer):
                 if presence:
                     presence.status = status
                     presence.last_active = timezone.now()
-                    presence.save()
+                    await sync_to_async(presence.save)()
                     # Optionally broadcast status to subscribed conversations
                     for cid in self.subscribed_conversations:
                         await self.channel_layer.group_send(
