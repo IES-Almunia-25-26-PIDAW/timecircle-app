@@ -195,10 +195,8 @@ class PresenceConsumer(AsyncWebsocketConsumer):
         # Import models lazily to avoid app registry issues at module import time
         from .models import UserPresence
 
-        try:
-            pres = await sync_to_async(UserPresence.objects.get)(user=self.user)
-            return pres
-        except UserPresence.DoesNotExist:
-            # Create presence record if missing
-            pres = await sync_to_async(UserPresence.objects.create)(user=self.user, status=UserPresence.Status.ONLINE)
-            return pres
+        pres, _created = await sync_to_async(UserPresence.objects.get_or_create)(
+            user=self.user,
+            defaults={'status': UserPresence.Status.ONLINE},
+        )
+        return pres
