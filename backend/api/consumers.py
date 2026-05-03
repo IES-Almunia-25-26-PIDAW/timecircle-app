@@ -33,7 +33,7 @@ class PresenceConsumer(AsyncWebsocketConsumer):
                 await self.close(code=4001)
                 return
             except signing.BadSignature:
-                print('WS connect: bad ws_key signature')
+                logger.warning('WS connect: bad ws_key signature')
                 await self.close(code=4002)
                 return
         else:
