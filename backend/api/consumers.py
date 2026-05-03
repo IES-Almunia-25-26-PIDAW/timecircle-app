@@ -17,7 +17,7 @@ class PresenceConsumer(AsyncWebsocketConsumer):
 
     async def connect(self):
         # Expect ws_key in query string: ?ws_key=...
-        print('WS connect scope.query_string:', self.scope.get('query_string'))
+        logger.debug('WS connect scope.query_string: %r', self.scope.get('query_string'))
         from urllib.parse import parse_qs
         qs = self.scope['query_string'].decode()
         params = parse_qs(qs)
