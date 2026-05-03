@@ -88,7 +88,7 @@ class PresenceConsumer(AsyncWebsocketConsumer):
                         presence.typing_in_id = cid
                         presence.typing_at = timezone.now()
                     else:
-                        presence.typing_in = None
+                        presence.typing_in_id = None
                         presence.typing_at = None
                     await sync_to_async(presence.save)()
                     # Broadcast typing state to conversation group
