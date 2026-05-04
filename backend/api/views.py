@@ -72,11 +72,6 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 class LoginView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
 
-
-# ══════════════════════════════════════════════════════════
-#  AUTH
-# ══════════════════════════════════════════════════════════
-
 @extend_schema(tags=['Auth'])
 class RegisterView(generics.CreateAPIView):
     """Registro de nuevo usuario. Devuelve los tokens JWT y el objeto usuario."""
@@ -317,11 +312,6 @@ class WSPresenceHandshakeView(generics.GenericAPIView):
         token = signing.dumps({'user_id': request.user.id})
         return Response({'ws_key': token})
 
-
-# ══════════════════════════════════════════════════════════
-#  USUARIOS
-# ══════════════════════════════════════════════════════════
-
 @extend_schema_view(
     list=extend_schema(
         tags=['Users'],
@@ -342,7 +332,8 @@ class UserViewSet(viewsets.ModelViewSet):
     filter_backends    = [filters.SearchFilter, filters.OrderingFilter]
     search_fields      = ['first_name', 'last_name', 'username', 'email', 'location']
     ordering_fields    = ['rating', 'completed_trades', 'date_joined', 'credits']
-    http_method_names  = ['get', 'put', 'patch', 'head', 'options']
+    # Allow POST here so custom actions (e.g. POST /api/users/skills/) can accept POST.
+    http_method_names  = ['get', 'post', 'put', 'patch', 'head', 'options']
 
     def get_serializer_class(self):
         if self.action in ['update', 'partial_update']:
@@ -522,11 +513,6 @@ class SkillViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
         return super().create(request, *args, **kwargs)
-
-
-# ══════════════════════════════════════════════════════════
-#  SERVICIOS
-# ══════════════════════════════════════════════════════════
 
 @extend_schema_view(
     list=extend_schema(
@@ -964,11 +950,6 @@ class AdminUserViewSet(viewsets.ModelViewSet):
             ).data,
         })
 
-
-# ══════════════════════════════════════════════════════════
-#  CONTACTO
-# ══════════════════════════════════════════════════════════
-
 @extend_schema(tags=['Contact'])
 class ContactView(generics.CreateAPIView):
     queryset           = ContactMessage.objects.all()
@@ -1020,6 +1001,7 @@ class PresenceHeartbeatView(generics.GenericAPIView):
         if raw_status not in ['online', 'away']:
             raw_status = 'online'
 
+        from .models import UserPresence
         UserPresence.objects.update_or_create(
             user=request.user,
             defaults={
@@ -1069,6 +1051,7 @@ class PresenceTypingView(generics.GenericAPIView):
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
+        from .models import UserPresence
         UserPresence.objects.update_or_create(
             user=request.user,
             defaults={
@@ -1116,7 +1099,7 @@ class PresenceStatusView(generics.GenericAPIView):
                 {'detail': 'user_id es obligatorio.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
+        from .models import UserPresence
         try:
             presence = UserPresence.objects.get(user_id=user_id)
         except UserPresence.DoesNotExist:
