@@ -17,7 +17,7 @@ class PresenceConsumer(AsyncWebsocketConsumer):
 
     async def connect(self):
         # Expect ws_key in query string: ?ws_key=...
-        print('WS connect scope.query_string:', self.scope.get('query_string'))
+        logger.debug('WS connect scope.query_string: %r', self.scope.get('query_string'))
         from urllib.parse import parse_qs
         qs = self.scope['query_string'].decode()
         params = parse_qs(qs)
@@ -29,21 +29,21 @@ class PresenceConsumer(AsyncWebsocketConsumer):
                 user_id = payload.get('user_id')
                 user = await self.get_user(user_id)
             except signing.SignatureExpired:
-                print('WS connect: ws_key expired')
+                logger.warning("WS connect: ws_key expired")
                 await self.close(code=4001)
                 return
             except signing.BadSignature:
-                print('WS connect: bad ws_key signature')
+                logger.warning('WS connect: bad ws_key signature')
                 await self.close(code=4002)
                 return
         else:
             # Reject anonymous WS connections
-            print('WS connect: missing ws_key')
+            logger.warning('WS connect: missing ws_key')
             await self.close(code=4003)
             return
 
         if not user:
-            print('WS connect: user not found for ws_key payload:', repr(ws_key))
+            logger.warning('WS connect: user not found for provided ws_key payload')
             await self.close(code=4004)
             return
 
