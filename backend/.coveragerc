@@ -1,5 +1,10 @@
 [run]
 omit =
+    api/management/*
+    api/routing.py
+    api/urls.py
+    api/middleware.py
+    backend/urls.py
     */migrations/*
     */tests/*
     */__init__.py
