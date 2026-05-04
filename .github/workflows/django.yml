@@ -51,5 +51,5 @@ jobs:
         pip install -r requirements.txt
     - name: Run Tests
       run: |
-        pwd
+        cd backend
         pytest --cov=. --cov-report=term-missing --cov-fail-under=80 --cov-config=.coveragerc
