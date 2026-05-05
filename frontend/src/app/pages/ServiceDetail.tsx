@@ -72,7 +72,6 @@ export const ServiceDetail: React.FC = () => {
     } catch (e: any) {
       const errMsg = e?.detail || e?.non_field_errors?.[0] || e?.message || 'Error al crear el intercambio';
       setBookError(errMsg);
-      toast.error(errMsg);
     } finally {
       setBooking(false);
     }
