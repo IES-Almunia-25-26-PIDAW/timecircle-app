@@ -36,6 +36,7 @@ export const ServiceDetail: React.FC = () => {
   const ownerReviews = getUserReviews(service.userId);
   const cat          = CATEGORIES.find(c => c.id === service.category);
   const isOwner      = currentUser?.id === service.userId;
+  const minDateStr = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   const handleBook = async () => {
     setBookError('');
@@ -45,6 +46,18 @@ export const ServiceDetail: React.FC = () => {
       return;
     }
     setBooking(true);
+    // Validar que la fecha seleccionada sea al menos 1 día desde hoy
+    const [y, m, d] = scheduledDate.split('-').map(Number);
+    const selected = new Date(y, m - 1, d);
+    const now = new Date();
+    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const minAllowed = new Date(todayMidnight.getTime() + 24 * 60 * 60 * 1000); // mañana 00:00
+    if (selected.getTime() < minAllowed.getTime()) {
+      const msg = 'La fecha no puede ser anterior a hoy ni con menos de 1 día de antelación.';
+      setBookError(msg);
+      setBooking(false);
+      return;
+    }
     try {
       await createTrade({
         serviceId:     service.id,
@@ -57,7 +70,8 @@ export const ServiceDetail: React.FC = () => {
       });
       setBooked(true);
     } catch (e: any) {
-      setBookError(e?.detail || e?.non_field_errors?.[0] || 'Error al crear el intercambio');
+      const errMsg = e?.detail || e?.non_field_errors?.[0] || e?.message || 'Error al crear el intercambio';
+      setBookError(errMsg);
     } finally {
       setBooking(false);
     }
@@ -264,7 +278,7 @@ export const ServiceDetail: React.FC = () => {
                     type="date"
                     value={scheduledDate}
                     onChange={e => setScheduledDate(e.target.value)}
-                    min={new Date().toISOString().split('T')[0]}
+                    min={minDateStr}
                     className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500"
                     style={{ fontSize: '0.875rem' }}
                   />
