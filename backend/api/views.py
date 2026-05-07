@@ -41,6 +41,8 @@ from .serializers import (
     PasswordResetRequestSerializer, PasswordResetConfirmSerializer
 )
 
+PRESENCE_OFFLINE_THRESHOLD_MINUTES = 5
+
 
 # ── Custom Throttles for presence ────────────────────────
 class PresenceThrottle(UserRateThrottle):
@@ -174,7 +176,9 @@ class LogoutView(generics.GenericAPIView):
                 presence = UserPresence.objects.filter(user=request.user).first()
                 if presence:
                     # Forzar estado offline usando last_active > 5min
-                    presence.last_active = timezone.now() - timedelta(minutes=10)
+                    presence.last_active = timezone.now() - timedelta(
+                        minutes=PRESENCE_OFFLINE_THRESHOLD_MINUTES
+                    )
                     presence.typing_in = None
                     presence.typing_at = None
                     presence.save(update_fields=['last_active', 'typing_in', 'typing_at'])
