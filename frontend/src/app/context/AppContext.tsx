@@ -1010,7 +1010,6 @@ const refreshUnread = useCallback(async () => {
       navigator.geolocation.getCurrentPosition(async (pos) => {
         const coords = { lat: pos.coords.latitude, lon: pos.coords.longitude };
         setViewerLocation(coords);
-        sessionStorage.setItem('timecircle_viewer_coords', JSON.stringify(coords));
         setShowLocationBanner(false);
         try {
           if (currentUser) {
