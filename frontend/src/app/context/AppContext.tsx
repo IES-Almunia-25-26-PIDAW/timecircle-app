@@ -389,17 +389,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Restore any previously granted viewer coords (anonymous or auth) from sessionStorage
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    try {
-      const raw = sessionStorage.getItem('timecircle_viewer_coords');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed.lat === 'number' && typeof parsed.lon === 'number') {
-          setViewerLocation(parsed);
-        }
-      }
-    } catch (e) {
-      // ignore parse errors
-    }
   }, []);
 
   useEffect(() => {
@@ -413,7 +402,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const coords = { lat: pos.coords.latitude, lon: pos.coords.longitude };
           setViewerLocation(coords);
           sessionStorage.setItem('timecircle_geo_prompted', 'yes');
-          sessionStorage.setItem('timecircle_viewer_coords', JSON.stringify(coords));
+          // Do not store precise coordinates in browser storage.
           // If authenticated, persist to profile so backend can resolve city/country
           try {
             if (currentUser) {
