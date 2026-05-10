@@ -26,6 +26,20 @@ const ServiceCard: React.FC<{ service: Service }> = ({ service }) => {
         </div>
       </div>
 
+      {/* Distance / proximity */}
+      {service.distanceKm !== undefined && service.distanceKm !== null && (
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-slate-500" style={{ fontSize: '0.8rem' }}>
+            {service.distanceKm} km desde ti
+          </div>
+          <div>
+            <span className={`px-2 py-0.5 rounded-full text-xs ${service.proximity === 'very_close' ? 'bg-green-100 text-green-700' : service.proximity === 'close' ? 'bg-blue-100 text-blue-700' : service.proximity === 'medium' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+              {service.proximity === 'very_close' ? '🟢 Muy cerca' : service.proximity === 'close' ? '🔵 Cerca' : service.proximity === 'medium' ? '🟡 Medio' : '🔴 Lejos'}
+            </span>
+          </div>
+        </div>
+      )}
+
       <h3 className="text-slate-900 group-hover:text-teal-700 transition-colors mb-1" style={{ fontSize: '0.95rem', fontWeight: 600, lineHeight: 1.4 }}>
         {service.title}
       </h3>
@@ -65,6 +79,9 @@ export const Services: React.FC = () => {
   const [typeFilter, setTypeFilter] = useState<'all' | 'offer' | 'request'>('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [showFilters, setShowFilters] = useState(false);
+  const { searchServices, updateProfile } = useApp();
+  const [maxDistanceKm, setMaxDistanceKm] = useState<number>(currentUser?.searchRadiusKm ?? 25);
+  const [myCityOnly, setMyCityOnly] = useState<boolean>(currentUser?.searchMyCityOnly ?? false);
 
   const filtered = useMemo(() => {
     return services.filter(s => {
@@ -161,6 +178,21 @@ export const Services: React.FC = () => {
                   {cat.label}
                 </button>
               ))}
+            </div>
+            {/* Distance & locality filters */}
+            <div className="grid sm:grid-cols-3 gap-3 pt-2">
+              <div>
+                <label className="block text-slate-700 mb-1" style={{ fontSize: '0.85rem' }}>Radio máximo (km)</label>
+                <input type="number" min={1} value={maxDistanceKm} onChange={e => setMaxDistanceKm(Number(e.target.value || 0))} className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50" />
+              </div>
+              <div className="flex items-center gap-2">
+                <input id="myCityOnly" type="checkbox" checked={myCityOnly} onChange={e => setMyCityOnly(e.target.checked)} className="w-4 h-4" />
+                <label htmlFor="myCityOnly" className="text-slate-700" style={{ fontSize: '0.9rem' }}>Mostrar solo mi ciudad</label>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => searchServices({ maxDistanceKm, myCityOnly })} className="px-3 py-2 bg-teal-600 text-white rounded-xl">Aplicar filtros</button>
+                <button onClick={() => updateProfile({ searchRadiusKm: maxDistanceKm, searchMyCityOnly: myCityOnly })} className="px-3 py-2 border rounded-xl">Guardar como predeterminado</button>
+              </div>
             </div>
           </div>
         )}

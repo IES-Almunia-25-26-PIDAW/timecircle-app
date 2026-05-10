@@ -10,7 +10,7 @@ import {
   apiGetUsers, apiGetUser,
   apiGetCategories,
   apiGetServices, apiCreateService, apiUpdateService, apiDeleteService,
-  apiGetTrades, apiCreateTrade, apiUpdateTradeStatus,
+  apiGetTrades, apiCreateTrade, apiUpdateTradeStatus, apiNegotiateTrade,
   apiGetConversations, apiGetConversation, apiCreateConversation,
   apiSendMessage, apiMarkConversationRead,
   apiGetReviews, apiCreateReview,
@@ -30,6 +30,11 @@ const mapUser = (u: any): User => ({
   avatar: u.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.username}&backgroundColor=b6e3f4`,
   bio: u.bio || '',
   location: u.location || '',
+  city: u.city || '',
+  country: u.country || '',
+  latitude: u.latitude !== undefined && u.latitude !== null ? Number(u.latitude) : undefined,
+  longitude: u.longitude !== undefined && u.longitude !== null ? Number(u.longitude) : undefined,
+  distanceKm: u.distance_km ?? undefined,
   credits: u.credits ?? 0,
   rating: parseFloat(u.rating) || 0,
   totalReviews: u.total_reviews ?? 0,
@@ -40,6 +45,14 @@ const mapUser = (u: any): User => ({
   isAdmin: u.is_admin || u.is_staff || false,
   hoursGiven: u.hours_given ?? 0,
   hoursReceived: u.hours_received ?? 0,
+  searchRadiusKm: u.search_radius_km ?? undefined,
+  searchMyCityOnly: u.search_my_city_only ?? undefined,
+  maxTradeDistanceKm: u.max_trade_distance_km ?? undefined,
+  tradeMyCityOnly: u.trade_my_city_only ?? undefined,
+  // Exact address fields (optional)
+  streetAddress: u.street_address || '',
+  postalCode: u.postal_code || '',
+  shareExactLocation: u.share_exact_location ?? false,
 });
 
 const mapService = (s: any): Service => ({
@@ -54,6 +67,10 @@ const mapService = (s: any): Service => ({
   status: s.status,
   createdAt: (s.created_at || '').split('T')[0] || '',
   tags: (s.tags || []).map((t: any) => (typeof t === 'string' ? t : t.name)),
+  distanceKm: s.distance_km ?? undefined,
+  proximity: s.proximity ?? undefined,
+  user: s.user ? mapUser(s.user) : undefined,
+  
 });
 
 const mapTrade = (t: any): Trade => ({
@@ -62,11 +79,14 @@ const mapTrade = (t: any): Trade => ({
   offererId: String(t.offerer?.id ?? t.offerer ?? ''),
   requesterId: String(t.requester?.id ?? t.requester ?? ''),
   status: t.status,
-  scheduledDate: (t.scheduled_date || '').split('T')[0] || '',
+  scheduledDate: t.scheduled_date || '',
   creditsAmount: t.credits_amount ?? 0,
   createdAt: (t.created_at || '').split('T')[0] || '',
   completedAt: t.completed_at ? (t.completed_at || '').split('T')[0] : undefined,
   notes: t.notes || '',
+  lastProposedById: t.last_proposed_by ? String(t.last_proposed_by?.id ?? t.last_proposed_by) : undefined,
+  lastProposedAt: t.last_proposed_at || undefined,
+  conversationId: t.conversation_id ? String(t.conversation_id) : undefined,
 });
 
 const mapMessage = (m: any, convId: string): Message => ({
@@ -74,6 +94,9 @@ const mapMessage = (m: any, convId: string): Message => ({
   conversationId: convId,
   senderId: String(m.sender?.id ?? m.sender ?? ''),
   content: m.content,
+  messageType: m.message_type || 'text',
+  trade: m.trade ? mapTrade(m.trade) : undefined,
+  payload: m.payload || undefined,
   timestamp: m.timestamp,
   read: m.read ?? false,
 });
@@ -122,8 +145,9 @@ interface AppContextType {
   deleteService: (id: string) => void;
 
   // Trade Actions
-  createTrade: (trade: Omit<Trade, 'id' | 'createdAt'>) => void;
-  updateTrade: (id: string, updates: Partial<Trade>) => void;
+  createTrade: (trade: Omit<Trade, 'id' | 'createdAt'>) => Promise<any>;
+  updateTrade: (id: string, updates: Partial<Trade>) => Promise<void>;
+  negotiateTrade: (id: string, updates: Partial<Trade> & { message?: string }) => Promise<Trade | undefined>;
 
   // Message Actions
   sendMessage: (conversationId: string, content: string) => void;
@@ -151,6 +175,13 @@ interface AppContextType {
   getUserConversations: (userId: string) => Conversation[];
   totalUnreadMessages: number;
 
+  // Location / Maps
+  viewerLocation?: { lat: number; lon: number } | null;
+  showLocationBanner: boolean;
+  requestLocation: () => Promise<void>;
+  // Search with filters (distance / my-city)
+  searchServices: (filters?: { maxDistanceKm?: number; myCityOnly?: boolean }) => Promise<void>;
+
   // WebSocket client (presence)
   getWsClient: () => any;
 
@@ -163,6 +194,8 @@ const AppContext = createContext<AppContextType | null>(null);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [viewerLocation, setViewerLocation] = useState<{ lat: number; lon: number } | null>(null);
+  const [showLocationBanner, setShowLocationBanner] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -173,6 +206,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [apiCategoryMap, setApiCategoryMap] = useState<Record<string, number>>({});
   const loadedConvs = useRef<Set<string>>(new Set());
   const wsRef = useRef<any>(null);
+  // Prevent concurrent/duplicate network calls
+  const servicesPromiseRef = useRef<Promise<any> | null>(null);
+  const conversationsPromiseRef = useRef<Promise<any> | null>(null);
+  const heartbeatInFlightRef = useRef(false);
+  const initRanRef = useRef(false);
+  const conversationsLastFetchedAtRef = useRef<number | null>(null);
+  const servicesLastFetchedAtRef = useRef<number | null>(null);
 
   // ── FETCH APP DATA ────────────────────────────────────────
 
@@ -189,7 +229,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch (e) {
       console.error('Error fetching categories', e);
     }
-  }, []);
+  }, [viewerLocation]);
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -202,14 +242,68 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   const fetchServices = useCallback(async () => {
+    // Rate-limit + dedupe concurrent duplicate fetches
+    const MIN_SERVICES_INTERVAL = 3000; // 3s
+    if (servicesLastFetchedAtRef.current && Date.now() - servicesLastFetchedAtRef.current < MIN_SERVICES_INTERVAL) {
+      return Promise.resolve();
+    }
+    if (servicesPromiseRef.current) return servicesPromiseRef.current;
+    servicesLastFetchedAtRef.current = Date.now();
+    servicesPromiseRef.current = (async () => {
+      try {
+        const params: string[] = [];
+        // Prefer explicit viewerLocation (user granted this session),
+        // fall back to the authenticated user's saved coordinates if available.
+        let lat: number | undefined = undefined;
+        let lon: number | undefined = undefined;
+        if (viewerLocation) {
+          lat = viewerLocation.lat;
+          lon = viewerLocation.lon;
+        } else if (currentUser && typeof currentUser.latitude === 'number' && typeof currentUser.longitude === 'number') {
+          lat = currentUser.latitude;
+          lon = currentUser.longitude;
+        }
+        if (lat !== undefined && lon !== undefined) {
+          params.push(`viewer_lat=${lat}&viewer_lon=${lon}`);
+        }
+
+        const data = await apiGetServices(params.join('&'));
+        const list = data?.results || data || [];
+        setServices(list.map(mapService));
+      } catch (e) {
+        console.error('Error fetching services', e);
+      } finally {
+        servicesPromiseRef.current = null;
+        servicesLastFetchedAtRef.current = Date.now();
+      }
+    })();
+    return servicesPromiseRef.current;
+  }, [viewerLocation, currentUser]);
+
+  // If the viewer enables location after initial load, re-fetch services
+  // so distance/proximity fields are computed server-side and shown in UI.
+  useEffect(() => {
+    if (!viewerLocation) return;
+    // fire-and-forget; errors are logged in fetchServices
+    fetchServices();
+  }, [viewerLocation, fetchServices]);
+
+  const searchServices = useCallback(async (filters?: { maxDistanceKm?: number; myCityOnly?: boolean }) => {
     try {
-      const data = await apiGetServices();
+      const params: string[] = [];
+      if (viewerLocation) params.push(`viewer_lat=${viewerLocation.lat}&viewer_lon=${viewerLocation.lon}`);
+      if (filters?.maxDistanceKm !== undefined && filters?.maxDistanceKm !== null) params.push(`max_distance_km=${filters.maxDistanceKm}`);
+      if (filters?.myCityOnly) {
+        params.push('my_city_only=true');
+        if (currentUser?.city) params.push(`viewer_city=${encodeURIComponent(currentUser.city)}`);
+      }
+      const data = await apiGetServices(params.join('&'));
       const list = data?.results || data || [];
       setServices(list.map(mapService));
     } catch (e) {
-      console.error('Error fetching services', e);
+      console.error('Error searching services', e);
     }
-  }, []);
+  }, [viewerLocation, currentUser]);
 
   const fetchTrades = useCallback(async () => {
     try {
@@ -222,13 +316,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   const fetchConversations = useCallback(async () => {
-    try {
-      const data = await apiGetConversations();
-      const list = data?.results || data || [];
-      setConversations(list.map(mapConversation));
-    } catch (e) {
-      console.error('Error fetching conversations', e);
+    // Rate-limit + dedupe concurrent conversation fetches
+    const MIN_CONVERSATIONS_INTERVAL = 5000; // 5s
+    if (conversationsLastFetchedAtRef.current && Date.now() - conversationsLastFetchedAtRef.current < MIN_CONVERSATIONS_INTERVAL) {
+      return Promise.resolve(conversations);
     }
+    if (conversationsPromiseRef.current) return conversationsPromiseRef.current;
+    conversationsLastFetchedAtRef.current = Date.now();
+    conversationsPromiseRef.current = (async () => {
+      try {
+        const data = await apiGetConversations();
+        const list = data?.results || data || [];
+        setConversations(list.map(mapConversation));
+      } catch (e) {
+        console.error('Error fetching conversations', e);
+      } finally {
+        conversationsPromiseRef.current = null;
+        conversationsLastFetchedAtRef.current = Date.now();
+      }
+    })();
+    return conversationsPromiseRef.current;
   }, []);
 
   const fetchReviews = useCallback(async (userId: string) => {
@@ -247,19 +354,95 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   const loadInitialData = useCallback(async (user: User) => {
-    await Promise.all([
+    const tasks: Promise<any>[] = [
       fetchCategories(),
       fetchUsers(),
-      fetchServices(),
       fetchTrades(),
       fetchConversations(),
       fetchReviews(user.id),
-    ]);
-  }, [fetchCategories, fetchUsers, fetchServices, fetchTrades, fetchConversations, fetchReviews]);
+    ];
+
+    // Ensure services are fetched using the most accurate viewer coordinates:
+    // 1) session viewerLocation (granted this session)
+    // 2) saved user coordinates (from profile)
+    if (viewerLocation) {
+      tasks.push(fetchServices());
+    } else if (user && typeof user.latitude === 'number' && typeof user.longitude === 'number') {
+      const params = `viewer_lat=${user.latitude}&viewer_lon=${user.longitude}`;
+      tasks.push((async () => {
+        try {
+          const data = await apiGetServices(params);
+          const list = data?.results || data || [];
+          setServices(list.map(mapService));
+        } catch (e) {
+          console.error('Error fetching services', e);
+        }
+      })());
+    } else {
+      tasks.push(fetchServices());
+    }
+
+    await Promise.all(tasks);
+  }, [fetchCategories, fetchUsers, fetchServices, fetchTrades, fetchConversations, fetchReviews, viewerLocation]);
+
+  // ── GEOLOCATION: ask once per session and store viewer coords
+  // Restore any previously granted viewer coords (anonymous or auth) from sessionStorage
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = sessionStorage.getItem('timecircle_viewer_coords');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed.lat === 'number' && typeof parsed.lon === 'number') {
+          setViewerLocation(parsed);
+        }
+      }
+    } catch (e) {
+      // ignore parse errors
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('geolocation' in navigator)) return;
+    try {
+      const prompted = sessionStorage.getItem('timecircle_geo_prompted');
+      if (prompted) return;
+
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const coords = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+          setViewerLocation(coords);
+          sessionStorage.setItem('timecircle_geo_prompted', 'yes');
+          sessionStorage.setItem('timecircle_viewer_coords', JSON.stringify(coords));
+          // If authenticated, persist to profile so backend can resolve city/country
+          try {
+            if (currentUser) {
+              await apiUpdateMe({ latitude: coords.lat, longitude: coords.lon });
+              const meData = await apiGetMe();
+              if (meData) setCurrentUser(mapUser(meData));
+            }
+          } catch (e) {
+            // ignore update errors
+          }
+        },
+        () => {
+          // user denied or error — show a friendly banner offering to enable later
+          setShowLocationBanner(true);
+          sessionStorage.setItem('timecircle_geo_prompted', 'yes');
+        },
+        { enableHighAccuracy: false, timeout: 10000 }
+      );
+    } catch (e) {
+      // no-op
+    }
+  }, [currentUser]);
 
   // ── INIT: check stored tokens ─────────────────────────────
 
   useEffect(() => {
+    if (initRanRef.current) return;
+    initRanRef.current = true;
+
     const init = async () => {
       const { access } = getTokens();
       if (!access) {
@@ -288,8 +471,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             // ignore ws errors
           }
         }
-      } catch {
-        clearTokens();
+      } catch (err) {
+        console.error('Error fetching current user during init', err);
+        // Only clear tokens for authentication-related errors. Transient
+        // network or backend errors should not silently log the user out.
+        const isAuthError = err && (
+          (err as any).status === 401 ||
+          (typeof (err as any).detail === 'string' && /token|invalid|authentication|credencial/i.test((err as any).detail))
+        );
+        if (isAuthError) {
+          clearTokens();
+        }
       } finally {
         setLoading(false);
       }
@@ -311,11 +503,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let currentStatus: 'online' | 'away' = 'online';
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const sendHeartbeat = () => {
-      apiFetch('/api/presence/heartbeat/', {
-        method: 'POST',
-        body: JSON.stringify({ status: currentStatus }),
-      }).catch(() => {});
+    const sendHeartbeat = async () => {
+      // Prevent overlapping heartbeat requests
+      if (heartbeatInFlightRef.current) return;
+      heartbeatInFlightRef.current = true;
+      try {
+        await apiFetch('/api/presence/heartbeat/', {
+          method: 'POST',
+          body: JSON.stringify({ status: currentStatus }),
+        });
+      } catch (e) {
+        // ignore errors
+      } finally {
+        heartbeatInFlightRef.current = false;
+      }
     };
 
     const goAway = () => {
@@ -448,10 +649,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (updates.bio !== undefined) payload.bio = updates.bio;
       if (updates.location !== undefined) payload.location = updates.location;
       if (updates.avatar !== undefined) payload.avatar = updates.avatar;
-      const res = await apiUpdateMe(payload);
-      const updated = mapUser(res);
-      setCurrentUser(updated);
-      setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
+      // Location / preference fields (map frontend keys → API snake_case)
+      if ((updates as any).city !== undefined) payload.city = (updates as any).city;
+      if ((updates as any).country !== undefined) payload.country = (updates as any).country;
+      if ((updates as any).latitude !== undefined) payload.latitude = (updates as any).latitude;
+      if ((updates as any).longitude !== undefined) payload.longitude = (updates as any).longitude;
+      if ((updates as any).streetAddress !== undefined) payload.street_address = (updates as any).streetAddress;
+      if ((updates as any).postalCode !== undefined) payload.postal_code = (updates as any).postalCode;
+      if ((updates as any).shareExactLocation !== undefined) payload.share_exact_location = (updates as any).shareExactLocation;
+      if ((updates as any).searchRadiusKm !== undefined) payload.search_radius_km = (updates as any).searchRadiusKm;
+      if ((updates as any).searchMyCityOnly !== undefined) payload.search_my_city_only = (updates as any).searchMyCityOnly;
+      if ((updates as any).maxTradeDistanceKm !== undefined) payload.max_trade_distance_km = (updates as any).maxTradeDistanceKm;
+      if ((updates as any).tradeMyCityOnly !== undefined) payload.trade_my_city_only = (updates as any).tradeMyCityOnly;
+      // Update and refresh full profile from server to ensure latest fields
+      await apiUpdateMe(payload);
+      const meData = await apiGetMe();
+      if (meData) {
+        const updated = mapUser(meData);
+        setCurrentUser(updated);
+        setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
+      }
     } catch (e) {
       console.error('Update profile error', e);
     }
@@ -513,7 +730,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const serviceIdNum = parseInt(trade.serviceId, 10);
       if (Number.isNaN(serviceIdNum)) {
         console.error('Create trade error: invalid serviceId', trade.serviceId);
-        return;
+        return undefined;
       }
 
       const payload = {
@@ -523,9 +740,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         notes: trade.notes || '',
       };
       const res = await apiCreateTrade(payload);
-      setTrades(prev => [mapTrade(res), ...prev]);
+      const created = res?.trade ?? res;
+      const mappedTrade = mapTrade(created);
+      if (res?.warning) {
+        try { window.alert(res.warning); } catch (e) { console.warn('Trade warning:', res.warning); }
+      }
+      setTrades(prev => [mappedTrade, ...prev.filter(t => t.id !== mappedTrade.id)]);
+      if (res?.conversation) {
+        const conv = mapConversation(res.conversation);
+        setConversations(prev => [conv, ...prev.filter(c => c.id !== conv.id)]);
+      }
+      if (res?.message && res?.conversation) {
+        const msg = mapMessage(res.message, String(res.conversation.id));
+        setMessages(prev => [...prev.filter(m => m.id !== msg.id), msg]);
+      }
+      return {
+        trade: mappedTrade,
+        conversationId: res?.conversation?.id ? String(res.conversation.id) : mappedTrade.conversationId,
+        message: res?.message,
+      };
     } catch (e) {
       console.error('Create trade error', e);
+      return undefined;
     }
   }, []);
 
@@ -548,6 +784,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
   }, [currentUser]);
+
+  const negotiateTrade = useCallback(async (
+    id: string,
+    updates: Partial<Trade> & { message?: string },
+  ): Promise<Trade | undefined> => {
+    try {
+      const payload: any = {};
+      if (updates.scheduledDate !== undefined) {
+        payload.scheduled_date = new Date(updates.scheduledDate).toISOString();
+      }
+      if (updates.creditsAmount !== undefined) payload.credits_amount = updates.creditsAmount;
+      if (updates.notes !== undefined) payload.notes = updates.notes;
+      if (updates.message !== undefined) payload.message = updates.message;
+      const res = await apiNegotiateTrade(id, payload);
+      const mapped = mapTrade(res);
+      setTrades(prev => prev.map(t => t.id === id ? mapped : t));
+      return mapped;
+    } catch (e) {
+      console.error('Negotiate trade error', e);
+      return undefined;
+    }
+  }, []);
 
   // ── CONVERSATION / MESSAGE ACTIONS ────────────────────────
 
@@ -663,10 +921,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
  
 const refreshUnread = useCallback(async () => {
   if (!currentUser) return;
+  // Use the shared fetchConversations (it has its own dedupe/rate-limit)
   try {
-    const data = await apiGetConversations();
-    const list = data?.results || data || [];
-    setConversations(list.map(mapConversation));
+    await fetchConversations();
   } catch (e) {
     // silently ignore
   }
@@ -758,13 +1015,35 @@ const refreshUnread = useCallback(async () => {
         .reduce((acc, c) => acc + c.unreadCount, 0)
     : 0;
 
+  const requestLocation = useCallback(async () => {
+    if (typeof window === 'undefined' || !('geolocation' in navigator)) return;
+    return new Promise<void>((resolve) => {
+      navigator.geolocation.getCurrentPosition(async (pos) => {
+        const coords = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+        setViewerLocation(coords);
+        sessionStorage.setItem('timecircle_viewer_coords', JSON.stringify(coords));
+        setShowLocationBanner(false);
+        try {
+          if (currentUser) {
+            await apiUpdateMe({ latitude: coords.lat, longitude: coords.lon });
+            const meData = await apiGetMe();
+            if (meData) setCurrentUser(mapUser(meData));
+          }
+        } catch (e) {
+          // ignore
+        }
+        resolve();
+      }, () => { setShowLocationBanner(true); resolve(); }, { enableHighAccuracy: false, timeout: 10000 });
+    });
+  }, [currentUser]);
+
   return (
     <AppContext.Provider value={{
       currentUser, login, logout, register, updateProfile,
       users, services, trades, messages, conversations, reviews,
       loading, apiCategoryMap,
       addService, updateService, deleteService,
-      createTrade, updateTrade,
+      createTrade, updateTrade, negotiateTrade,
       sendMessage, startConversation, markConversationRead, loadConversationMessages, refreshConversationMessages, refreshUnread,
       addReview,
       adminDeleteUser, adminDeleteService, adminUpdateUser,
@@ -772,8 +1051,24 @@ const refreshUnread = useCallback(async () => {
       getUserReviews, getUserTrades, getConversationMessages, getUserConversations,
       totalUnreadMessages,
       refreshServices, refreshTrades,
+      searchServices,
       getWsClient: () => wsRef.current,
+      // Location helpers
+      viewerLocation,
+      showLocationBanner,
+      requestLocation: requestLocation,
     }}>
+      {showLocationBanner && (
+        <div className="fixed bottom-6 left-4 right-4 z-50 flex justify-center">
+          <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-md flex items-center gap-4 max-w-3xl">
+            <div className="text-slate-700">Compartir tu ubicación ayuda a encontrar vecinos cercanos y mejorar los resultados. Puedes activarla desde aquí o más tarde en tu perfil.</div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => requestLocation()} className="px-3 py-1.5 bg-teal-600 text-white rounded-lg">Activar ubicación</button>
+              <button onClick={() => setShowLocationBanner(false)} className="px-2 py-1 text-slate-600">Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
       {children}
     </AppContext.Provider>
   );

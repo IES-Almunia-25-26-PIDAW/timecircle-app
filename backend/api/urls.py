@@ -50,7 +50,7 @@ from .views import (
     UserViewSet, CategoryViewSet, TagViewSet, SkillViewSet,
     ServiceViewSet, TradeViewSet,
     ConversationViewSet, ReviewViewSet,
-    AdminStatsView, AdminUserViewSet, ContactView,
+    AdminStatsView, AdminGeoStatsView, AdminUserViewSet, ContactView,
     # Presencia — añadir al import de views.py
     PresenceHeartbeatView, PresenceTypingView, PresenceStatusView,
     RequestPasswordResetView, ConfirmPasswordResetView,
@@ -90,6 +90,7 @@ urlpatterns = [
 
     # Admin stats
     path('admin/stats/', AdminStatsView.as_view(), name='admin-stats'),
+    path('admin/geo-stats/', AdminGeoStatsView.as_view(), name='admin-geo-stats'),
 
     # Router
     path('', include(router.urls)),

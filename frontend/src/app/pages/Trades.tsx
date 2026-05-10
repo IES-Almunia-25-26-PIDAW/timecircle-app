@@ -24,17 +24,23 @@ const ReviewModal: React.FC<{
   const [rating, setRating] = useState(0);
   const [hoveredRating, setHoveredRating] = useState(0);
   const [comment, setComment] = useState('');
+  const [commentError, setCommentError] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const reviewee = getUserById(revieweeId);
 
   const handleSubmit = () => {
     if (!currentUser || rating === 0) return;
+    if (comment.trim().length < 10) {
+      setCommentError('El comentario debe tener al menos 10 caracteres.');
+      return;
+    }
+
     addReview({
       tradeId: trade.id,
       reviewerId: currentUser.id,
       revieweeId,
       rating,
-      comment,
+      comment: comment.trim(),
     });
     setSubmitted(true);
     setTimeout(onClose, 1500);
@@ -77,15 +83,32 @@ const ReviewModal: React.FC<{
             </div>
 
             <div className="mb-5">
-              <label className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Comentario (opcional)</label>
+              <label className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Comentario</label>
               <textarea
                 value={comment}
-                onChange={e => setComment(e.target.value)}
+                onChange={e => {
+                  const nextComment = e.target.value;
+                  setComment(nextComment);
+                  if (commentError && nextComment.trim().length >= 10) {
+                    setCommentError('');
+                  }
+                }}
                 placeholder="Comparte tu experiencia con la comunidad..."
                 rows={3}
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 resize-none"
+                className={`w-full px-4 py-2.5 border rounded-xl focus:outline-none focus:ring-2 resize-none ${
+                  commentError
+                    ? 'border-red-300 focus:ring-red-500'
+                    : 'border-slate-200 focus:ring-teal-500'
+                }`}
                 style={{ fontSize: '0.875rem' }}
+                aria-invalid={commentError ? 'true' : 'false'}
+                aria-describedby={commentError ? 'review-comment-error' : undefined}
               />
+              {commentError && (
+                <p id="review-comment-error" className="mt-1.5 text-red-600" style={{ fontSize: '0.8rem' }}>
+                  {commentError}
+                </p>
+              )}
             </div>
 
             <div className="flex gap-3">

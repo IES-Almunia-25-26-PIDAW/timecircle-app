@@ -30,16 +30,19 @@ from .models import (
 )
 from .serializers import (
     UserRegistrationSerializer, UserSerializer, UserUpdateSerializer, UserRankingSerializer,
+    MeSerializer,
     UserSkillSerializer,
     CategorySerializer, TagSerializer, SkillSerializer,
     ServiceSerializer,
     TradeSerializer, TradeCreateSerializer, TradeStatusUpdateSerializer,
+    TradeNegotiationSerializer, get_or_create_trade_conversation, create_trade_message,
     TransactionSerializer,
     ConversationSerializer, MessageSerializer, MessageCreateSerializer,
     ReviewSerializer, ReviewCreateSerializer,
     AdminUserSerializer, AdminUserUpdateSerializer, ContactMessageSerializer,
     PasswordResetRequestSerializer, PasswordResetConfirmSerializer
 )
+from .utils_geo import reverse_geocode
 
 
 # ── Custom Throttles for presence ────────────────────────
@@ -123,7 +126,7 @@ class MeView(generics.GenericAPIView):
         responses={200: UserSerializer},
     )
     def get(self, request):
-        return Response(UserSerializer(request.user, context={'request': request}).data)
+        return Response(MeSerializer(request.user, context={'request': request}).data)
 
     @extend_schema(
         summary='Actualizar perfil propio',
@@ -137,7 +140,33 @@ class MeView(generics.GenericAPIView):
         serializer = UserUpdateSerializer(request.user, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
-        return Response(UserSerializer(user, context={'request': request}).data)
+
+        # Si se han enviado coordenadas, intentar resolver ciudad/país automáticamente
+        lat = request.data.get('latitude')
+        lon = request.data.get('longitude')
+        try:
+            if lat is not None and lon is not None:
+                city, country, street, postal_code = reverse_geocode(float(lat), float(lon))
+                update_fields = []
+                if city:
+                    user.city = city
+                    update_fields.append('city')
+                if country:
+                    user.country = country
+                    update_fields.append('country')
+                # If reverse geocoding provides a street/postal, save them as optional
+                if street:
+                    user.street_address = street
+                    update_fields.append('street_address')
+                if postal_code:
+                    user.postal_code = postal_code
+                    update_fields.append('postal_code')
+                if update_fields:
+                    user.save(update_fields=update_fields)
+        except Exception:
+            # Do not let geocoding failures block profile updates
+            pass
+        return Response(MeSerializer(user, context={'request': request}).data)
 
     def put(self, request):
         return self.patch(request)
@@ -568,6 +597,46 @@ class ServiceViewSet(viewsets.ModelViewSet):
 
         return qs.order_by('-created_at')
 
+    # Creation handled by ModelViewSet using `ServiceSerializer` and `perform_create`.
+
+    def list(self, request, *args, **kwargs):
+        # Override to allow distance-based filtering when viewer coordinates are supplied.
+        qs = self.filter_queryset(self.get_queryset())
+        services = list(qs)
+
+        # Serialize with request context so SerializerMethodFields can compute distances
+        serialized = ServiceSerializer(services, many=True, context={'request': request}).data
+
+        # Apply server-side filters if requested
+        max_dist = request.query_params.get('max_distance_km')
+        my_city_only = request.query_params.get('my_city_only') == 'true'
+        viewer_city = request.query_params.get('viewer_city') or (request.user.city if request.user.is_authenticated else None)
+
+        filtered = []
+        for item in serialized:
+            # item may have distance_km or not
+            dist = item.get('distance_km')
+            owner_city = item.get('user', {}).get('location') or item.get('user', {}).get('city')
+
+            if my_city_only and viewer_city:
+                if not owner_city or owner_city.lower() != viewer_city.lower():
+                    continue
+
+            if max_dist is not None and max_dist != '':
+                try:
+                    md = float(max_dist)
+                    if dist is None:
+                        # cannot determine distance => skip
+                        continue
+                    if float(dist) > md:
+                        continue
+                except Exception:
+                    pass
+
+            filtered.append(item)
+
+        return Response(filtered)
+
     def perform_create(self, serializer):
         user = self.request.user
 
@@ -642,13 +711,18 @@ class TradeViewSet(viewsets.ModelViewSet):
             return TradeCreateSerializer
         if self.action == 'update_status':
             return TradeStatusUpdateSerializer
+        if self.action == 'negotiate':
+            return TradeNegotiationSerializer
         return TradeSerializer
 
     def get_queryset(self):
         user = self.request.user
         qs   = Trade.objects.filter(
             Q(offerer=user) | Q(requester=user)
-        ).select_related('service__user', 'service__category', 'offerer', 'requester')
+        ).select_related(
+            'service__user', 'service__category',
+            'offerer', 'requester', 'last_proposed_by',
+        )
 
         st = self.request.query_params.get('status')
         if st:
@@ -661,6 +735,28 @@ class TradeViewSet(viewsets.ModelViewSet):
             qs = qs.filter(requester=user)
 
         return qs.order_by('-created_at')
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        trade = serializer.save()
+        conversation = get_or_create_trade_conversation(trade)
+        message = create_trade_message(
+            trade=trade,
+            sender=request.user,
+            message_type=Message.Type.TRADE_PROPOSAL,
+            action='created',
+            content='Nueva solicitud de intercambio',
+            message=trade.notes,
+        )
+        return Response(
+            {
+                'trade': TradeSerializer(trade, context={'request': request}).data,
+                'conversation': ConversationSerializer(conversation, context={'request': request}).data,
+                'message': MessageSerializer(message, context={'request': request}).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
     @extend_schema(
         tags=['Trades'],
@@ -695,6 +791,33 @@ class TradeViewSet(viewsets.ModelViewSet):
             )
         serializer = TradeStatusUpdateSerializer(
             trade, data=request.data, context={'request': request}
+        )
+        serializer.is_valid(raise_exception=True)
+        trade = serializer.save()
+        return Response(TradeSerializer(trade, context={'request': request}).data)
+
+    @extend_schema(
+        tags=['Trades'],
+        summary='Negociar propuesta de intercambio',
+        description='Actualiza fecha, créditos y/o notas de un trade pendiente y crea una tarjeta de propuesta en el chat.',
+        request=TradeNegotiationSerializer,
+        responses={
+            200: TradeSerializer,
+            400: OpenApiResponse(description='Datos inválidos o trade no negociable'),
+            403: OpenApiResponse(description='No eres participante de este intercambio'),
+        },
+    )
+    @action(detail=True, methods=['patch'], url_path='negotiate')
+    def negotiate(self, request, pk=None):
+        trade = self.get_object()
+        if request.user not in [trade.offerer, trade.requester]:
+            return Response(
+                {'detail': 'No eres participante de este intercambio.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        serializer = TradeNegotiationSerializer(
+            data=request.data,
+            context={'request': request, 'trade': trade},
         )
         serializer.is_valid(raise_exception=True)
         trade = serializer.save()
@@ -949,6 +1072,41 @@ class AdminUserViewSet(viewsets.ModelViewSet):
                 user.transactions.order_by('-created_at')[:20], many=True
             ).data,
         })
+
+
+@extend_schema(tags=['Admin'])
+class AdminGeoStatsView(generics.GenericAPIView):
+    """Estadísticas geográficas simples para el panel de administración.
+
+    Devuelve agrupaciones aproximadas (centros redondeados a 2 decimales)
+    con el recuento de usuarios activos y servicios, útiles para mostrar en
+    un mapa sin exponer coordenadas exactas.
+    """
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        users = User.objects.filter(is_active=True, latitude__isnull=False, longitude__isnull=False)
+        services = Service.objects.filter(user__latitude__isnull=False, user__longitude__isnull=False)
+
+        def group_by_cell(qs, attr_user=False):
+            cells = {}
+            for obj in qs:
+                u = obj if not attr_user else obj
+                if hasattr(obj, 'user'):
+                    u = obj.user
+                try:
+                    lat = round(float(u.latitude), 2)
+                    lon = round(float(u.longitude), 2)
+                except Exception:
+                    continue
+                key = f"{lat}:{lon}"
+                cells.setdefault(key, {'lat': lat, 'lon': lon, 'count': 0})['count'] += 1
+            return list(cells.values())
+
+        user_cells = group_by_cell(users, attr_user=True)
+        service_cells = group_by_cell(services, attr_user=False)
+
+        return Response({'user_cells': user_cells, 'service_cells': service_cells})
 
 @extend_schema(tags=['Contact'])
 class ContactView(generics.CreateAPIView):

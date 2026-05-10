@@ -127,7 +127,6 @@ export const Landing: React.FC = () => {
           </div>
         </div>
       </section>
-
       {/* Features */}
       <section className="py-16 md:py-20 bg-white dark:bg-slate-950">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">

@@ -14,17 +14,49 @@ const BADGE_CONFIG = {
 };
 
 const EditProfileModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const { currentUser, updateProfile } = useApp();
+  const { currentUser, updateProfile, requestLocation } = useApp();
   const [name, setName]         = useState(currentUser?.name || '');
   const [bio, setBio]           = useState(currentUser?.bio || '');
   const [location, setLocation] = useState(currentUser?.location || '');
+  const [city, setCity]         = useState(currentUser?.city || '');
+  const [country, setCountry]   = useState(currentUser?.country || '');
+  const [streetAddress, setStreetAddress] = useState(currentUser?.streetAddress || '');
+  const [postalCode, setPostalCode] = useState(currentUser?.postalCode || '');
+  const [shareExactLocation, setShareExactLocation] = useState<boolean>(currentUser?.shareExactLocation ?? false);
+  const [searchRadiusKm, setSearchRadiusKm] = useState<number>(currentUser?.searchRadiusKm ?? 25);
+  const [searchMyCityOnly, setSearchMyCityOnly] = useState<boolean>(currentUser?.searchMyCityOnly ?? false);
+  const [maxTradeDistanceKm, setMaxTradeDistanceKm] = useState<number>(currentUser?.maxTradeDistanceKm ?? 100);
+  const [tradeMyCityOnly, setTradeMyCityOnly] = useState<boolean>(currentUser?.tradeMyCityOnly ?? false);
   const [saving, setSaving]     = useState(false);
 
   const handleSave = async () => {
     setSaving(true);
-    await updateProfile({ name, bio, location });
+    await updateProfile({
+      name, bio, location, city, country,
+      streetAddress, postalCode, shareExactLocation,
+      searchRadiusKm, searchMyCityOnly,
+      maxTradeDistanceKm, tradeMyCityOnly,
+    });
     setSaving(false);
     onClose();
+  };
+
+  const handleUseBrowserLocation = async () => {
+    try {
+      await requestLocation();
+      // Refresh current user from server to pick up reverse-geocoded city/country
+      // Use the global updateProfile to pull latest me via apiGetMe inside it by sending empty payload
+      await updateProfile({});
+      // Update local fields from updated currentUser
+      const me = (await import('../api/endpoints')).apiGetMe;
+      const meData = await me();
+      if (meData) {
+        setCity(meData.city || '');
+        setCountry(meData.country || '');
+      }
+    } catch (e) {
+      // ignore
+    }
   };
 
   return (
@@ -39,6 +71,58 @@ const EditProfileModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           <div>
             <label className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Ubicación</label>
             <input value={location} onChange={e => setLocation(e.target.value)} placeholder="Tu barrio o ciudad" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50" style={{ fontSize: '0.875rem' }} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Ciudad (estructurada)</label>
+              <input value={city} onChange={e => setCity(e.target.value)} placeholder="Ciudad" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50" style={{ fontSize: '0.875rem' }} />
+            </div>
+            <div>
+              <label className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>País</label>
+              <input value={country} onChange={e => setCountry(e.target.value)} placeholder="País" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50" style={{ fontSize: '0.875rem' }} />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Dirección exacta (opcional)</label>
+            <input value={streetAddress} onChange={e => setStreetAddress(e.target.value)} placeholder="Calle, número, piso" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50" style={{ fontSize: '0.875rem' }} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Código postal</label>
+              <input value={postalCode} onChange={e => setPostalCode(e.target.value)} placeholder="Código postal" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50" style={{ fontSize: '0.875rem' }} />
+            </div>
+            <div className="flex items-center gap-2">
+              <input id="shareExactLocation" type="checkbox" checked={shareExactLocation} onChange={e => setShareExactLocation(e.target.checked)} className="w-4 h-4" />
+              <label htmlFor="shareExactLocation" className="text-slate-700" style={{ fontSize: '0.875rem' }}>Compartir mi dirección exacta con otros usuarios</label>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Radio de búsqueda (km)</label>
+              <input type="number" min={1} value={searchRadiusKm} onChange={e => setSearchRadiusKm(Number(e.target.value || 0))} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50" style={{ fontSize: '0.875rem' }} />
+            </div>
+            <div className="flex items-center gap-2">
+              <input id="searchMyCityOnly" type="checkbox" checked={searchMyCityOnly} onChange={e => setSearchMyCityOnly(e.target.checked)} className="w-4 h-4" />
+              <label htmlFor="searchMyCityOnly" className="text-slate-700" style={{ fontSize: '0.875rem' }}>Mostrar solo resultados de mi ciudad</label>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Máx. distancia para intercambios (km)</label>
+              <input type="number" min={1} value={maxTradeDistanceKm} onChange={e => setMaxTradeDistanceKm(Number(e.target.value || 0))} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50" style={{ fontSize: '0.875rem' }} />
+            </div>
+            <div className="flex items-center gap-2">
+              <input id="tradeMyCityOnly" type="checkbox" checked={tradeMyCityOnly} onChange={e => setTradeMyCityOnly(e.target.checked)} className="w-4 h-4" />
+              <label htmlFor="tradeMyCityOnly" className="text-slate-700" style={{ fontSize: '0.875rem' }}>Aceptar intercambios solo en mi ciudad</label>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button onClick={handleUseBrowserLocation} className="px-3 py-2 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200">Usar mi ubicación actual</button>
+            <div className="text-slate-500 text-sm">Esto guardará coordenadas privadas y rellenará ciudad/país si están disponibles.</div>
           </div>
           <div>
             <label className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Sobre mí</label>
@@ -127,8 +211,14 @@ export const Profile: React.FC = () => {
                 </div>
                 <div className="flex items-center gap-1 text-slate-500 mt-0.5" style={{ fontSize: '0.875rem' }}>
                   <MapPin className="w-3.5 h-3.5" />
-                  {user.location || 'Sin ubicación'}
+                      {user.location || 'Sin ubicación'}
+                      {user.distanceKm !== undefined && user.distanceKm !== null && (
+                        <span className="ml-2 text-slate-400" style={{ fontSize: '0.8rem' }}>{user.distanceKm} km desde ti</span>
+                      )}
                 </div>
+                {(user.shareExactLocation || isMe) && user.streetAddress && (
+                  <div className="text-slate-500 mt-1" style={{ fontSize: '0.85rem' }}>{user.streetAddress}{user.postalCode ? `, ${user.postalCode}` : ''}</div>
+                )}
               </div>
             </div>
 
