@@ -108,6 +108,11 @@ export const apiUpdateTradeStatus = (id: number | string, status: string) =>
     method: 'PATCH',
     body: JSON.stringify({ status }),
   });
+export const apiNegotiateTrade = (id: number | string, data: any) =>
+  apiFetch(`/api/trades/${id}/negotiate/`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
 
 // ── CONVERSATIONS ────────────────────────────────────────
 

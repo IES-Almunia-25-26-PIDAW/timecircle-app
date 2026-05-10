@@ -1,4 +1,6 @@
 import decimal
+import math
+from typing import Optional
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
@@ -94,7 +96,10 @@ class UserSerializer(serializers.ModelSerializer):
         model  = User
         fields = [
             'id', 'username', 'email', 'name', 'first_name', 'last_name',
-            'avatar', 'bio', 'location',
+            'avatar', 'bio', 'location', 'city', 'country',
+            'latitude', 'longitude',
+            # exact address fields: may be omitted from public responses depending on user preference
+            'street_address', 'postal_code', 'share_exact_location',
             'credits', 'rating', 'total_reviews',
             'member_since', 'skills', 'badge',
             'completed_trades', 'is_admin',
@@ -113,13 +118,46 @@ class UserSerializer(serializers.ModelSerializer):
             obj.user_skills.select_related('skill').values_list('skill__name', flat=True)
         )
 
+    def to_representation(self, instance: User) -> dict:
+        """Hide exact address fields from public responses unless the requester
+        is the owner, a staff user, or the owner has opted to share exact location.
+        """
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        show_exact = False
+        if request is not None and hasattr(request, 'user'):
+            try:
+                if request.user.is_authenticated:
+                    if request.user.is_staff or request.user == instance:
+                        show_exact = True
+            except Exception:
+                # Defensive: if request.user comparisons fail, fall back
+                show_exact = False
+        # If the user themselves has opted in to share exact location, allow it
+        if getattr(instance, 'share_exact_location', False):
+            show_exact = True
+
+        if not show_exact:
+            data.pop('street_address', None)
+            data.pop('postal_code', None)
+            data.pop('latitude', None)
+            data.pop('longitude', None)
+
+        return data
+
 
 class UserUpdateSerializer(serializers.ModelSerializer):
     """Serializer para que el propio usuario edite su perfil."""
 
     class Meta:
         model  = User
-        fields = ['first_name', 'last_name', 'avatar', 'bio', 'location']
+        fields = [
+            'first_name', 'last_name', 'avatar', 'bio', 'location',
+            'city', 'country', 'latitude', 'longitude',
+            'street_address', 'postal_code', 'share_exact_location',
+            'search_radius_km', 'search_my_city_only',
+            'max_trade_distance_km', 'trade_my_city_only',
+        ]
 
     def validate_avatar(self, value: str) -> str:
         if value and not value.startswith(('http://', 'https://')):
@@ -135,6 +173,59 @@ class UserUpdateSerializer(serializers.ModelSerializer):
         if value and len(value.strip()) < 2:
             raise serializers.ValidationError('El apellido debe tener al menos 2 caracteres.')
         return value.strip()
+
+    def validate_latitude(self, value: Optional[float]) -> Optional[float]:
+        if value is None:
+            return None
+        if not (-90 <= float(value) <= 90):
+            raise serializers.ValidationError('Latitud fuera de rango (-90..90).')
+        return value
+
+    def validate_longitude(self, value: Optional[float]) -> Optional[float]:
+        if value is None:
+            return None
+        if not (-180 <= float(value) <= 180):
+            raise serializers.ValidationError('Longitud fuera de rango (-180..180).')
+        return value
+
+    def validate_postal_code(self, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        val = str(value).strip()
+        if len(val) > 20:
+            raise serializers.ValidationError('El código postal es demasiado largo.')
+        return val
+
+
+class MeSerializer(serializers.ModelSerializer):
+    """Serializer para el propio usuario: incluye campos de ubicación y preferencias."""
+
+    name = serializers.SerializerMethodField()
+    member_since = serializers.DateTimeField(source='date_joined', read_only=True)
+    skills = serializers.SerializerMethodField()
+    is_admin = serializers.BooleanField(source='is_staff', read_only=True)
+
+    class Meta:
+        model = User
+        fields = [
+            'id', 'username', 'email', 'name', 'first_name', 'last_name',
+            'avatar', 'bio', 'location', 'city', 'country',
+            'latitude', 'longitude',
+            'street_address', 'postal_code', 'share_exact_location',
+            'search_radius_km', 'search_my_city_only',
+            'max_trade_distance_km', 'trade_my_city_only',
+            'credits', 'rating', 'total_reviews',
+            'member_since', 'skills', 'badge',
+            'completed_trades', 'is_admin',
+            'hours_given', 'hours_received',
+        ]
+        read_only_fields = ['credits', 'rating', 'total_reviews', 'completed_trades', 'hours_given', 'hours_received', 'badge']
+
+    def get_name(self, obj: User) -> str:
+        return obj.get_full_name() or obj.username
+
+    def get_skills(self, obj: User) -> list[str]:
+        return list(obj.user_skills.select_related('skill').values_list('skill__name', flat=True))
 
 
 class UserRankingSerializer(serializers.ModelSerializer):
@@ -180,6 +271,8 @@ class ServiceSerializer(serializers.ModelSerializer):
         queryset=Tag.objects.all(), many=True, source='tags',
         write_only=True, required=False, label='Etiquetas'
     )
+    distance_km = serializers.SerializerMethodField()
+    proximity = serializers.SerializerMethodField()
 
     class Meta:
         model  = Service
@@ -189,6 +282,8 @@ class ServiceSerializer(serializers.ModelSerializer):
             'category', 'category_id',
             'duration', 'credits', 'status',
             'created_at', 'tags', 'tag_ids',
+            # Derived location helpers (optional; computed if viewer coords provided)
+            'distance_km', 'proximity',
         ]
         read_only_fields = ['user', 'created_at']
 
@@ -230,6 +325,55 @@ class ServiceSerializer(serializers.ModelSerializer):
             instance.tags.set(tags)
         return instance
 
+    # ── Location helpers ─────────────────────────────────
+    def _get_viewer_coords(self) -> tuple[Optional[float], Optional[float]]:
+        req = self.context.get('request')
+        if not req:
+            return None, None
+        try:
+            lat = req.query_params.get('viewer_lat')
+            lon = req.query_params.get('viewer_lon')
+            if lat is None or lon is None:
+                return None, None
+            return float(lat), float(lon)
+        except Exception:
+            return None, None
+
+    def _haversine_km(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        # Haversine formula
+        R = 6371.0
+        dlat = math.radians(lat2 - lat1)
+        dlon = math.radians(lon2 - lon1)
+        a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        return R * c
+
+    def get_distance_km(self, obj: Service) -> Optional[float]:
+        vlat, vlon = self._get_viewer_coords()
+        if vlat is None or vlon is None:
+            return None
+        u = obj.user
+        if u.latitude is None or u.longitude is None:
+            return None
+        try:
+            return round(self._haversine_km(vlat, vlon, float(u.latitude), float(u.longitude)), 2)
+        except Exception:
+            return None
+
+    def get_proximity(self, obj: Service) -> Optional[str]:
+        d = self.get_distance_km(obj)
+        if d is None:
+            return None
+        if d <= 0.8:
+            return 'very_close'
+        if d <= 3.0:
+            return 'close'
+        if d <= 15.0:
+            return 'medium'
+        return 'far'
+
+    # Note: approx_zone removed — UI will use profile-stored location when allowed.
+
 
 # ══════════════════════════════════════════════════════════
 #  INTERCAMBIOS (TRADES)
@@ -247,21 +391,90 @@ class ReviewSummarySerializer(serializers.ModelSerializer):
         return obj.reviewer.get_full_name() or obj.reviewer.username
 
 
+def get_or_create_trade_conversation(trade: Trade) -> Conversation:
+    participant_ids = sorted([trade.offerer_id, trade.requester_id])
+    for conv in Conversation.objects.prefetch_related('participants'):
+        if sorted(conv.participants.values_list('id', flat=True)) == participant_ids:
+            return conv
+
+    conversation = Conversation.objects.create()
+    conversation.participants.set([trade.offerer, trade.requester])
+    return conversation
+
+
+def build_trade_message_payload(trade: Trade, action: str, message: str = '') -> dict:
+    service = trade.service
+    return {
+        'action': action,
+        'trade_id': trade.id,
+        'status': trade.status,
+        'service': {
+            'id': service.id,
+            'title': service.title,
+            'type': service.type,
+            'duration': service.duration,
+            'credits': service.credits,
+        },
+        'offerer_id': trade.offerer_id,
+        'requester_id': trade.requester_id,
+        'scheduled_date': trade.scheduled_date.isoformat() if trade.scheduled_date else None,
+        'credits_amount': trade.credits_amount,
+        'notes': trade.notes,
+        'message': message,
+        'last_proposed_by': trade.last_proposed_by_id,
+        'last_proposed_at': trade.last_proposed_at.isoformat() if trade.last_proposed_at else None,
+    }
+
+
+def create_trade_message(
+    trade: Trade,
+    sender: User,
+    message_type: str,
+    action: str,
+    content: str,
+    message: str = '',
+) -> Message:
+    conversation = get_or_create_trade_conversation(trade)
+    msg = Message.objects.create(
+        conversation=conversation,
+        sender=sender,
+        content=content,
+        message_type=message_type,
+        trade=trade,
+        payload=build_trade_message_payload(trade, action, message),
+    )
+    conversation.save()
+    return msg
+
+
 class TradeSerializer(serializers.ModelSerializer):
     """Serializer de lectura completo de un Trade."""
     service   = ServiceSerializer(read_only=True)
     offerer   = UserSerializer(read_only=True)
     requester = UserSerializer(read_only=True)
     reviews   = ReviewSummarySerializer(many=True, read_only=True)
+    last_proposed_by = UserSerializer(read_only=True)
+    conversation_id = serializers.SerializerMethodField()
 
     class Meta:
         model  = Trade
         fields = [
             'id', 'service', 'offerer', 'requester',
             'status', 'scheduled_date', 'credits_amount',
-            'notes', 'created_at', 'completed_at', 'reviews',
+            'notes', 'last_proposed_by', 'last_proposed_at',
+            'conversation_id', 'created_at', 'completed_at', 'reviews',
         ]
-        read_only_fields = ['offerer', 'requester', 'created_at', 'completed_at']
+        read_only_fields = [
+            'offerer', 'requester', 'last_proposed_by', 'last_proposed_at',
+            'created_at', 'completed_at',
+        ]
+
+    def get_conversation_id(self, obj: Trade) -> int | None:
+        ids = [obj.offerer_id, obj.requester_id]
+        for conv in Conversation.objects.prefetch_related('participants'):
+            if sorted(conv.participants.values_list('id', flat=True)) == sorted(ids):
+                return conv.id
+        return None
 
 
 class TradeCreateSerializer(serializers.ModelSerializer):
@@ -290,18 +503,22 @@ class TradeCreateSerializer(serializers.ModelSerializer):
                 'No puedes solicitar tu propio servicio.'
             )
 
-        # Los créditos deben coincidir con el servicio
-        if attrs.get('credits_amount') != service.credits:
+        credits_amount = attrs.get('credits_amount')
+        if credits_amount is None or credits_amount < 1:
             raise serializers.ValidationError({
-                'credits_amount': f'El monto de créditos debe ser {service.credits} (el precio del servicio).'
+                'credits_amount': 'El monto de créditos debe ser al menos 1.'
+            })
+        if credits_amount > 20:
+            raise serializers.ValidationError({
+                'credits_amount': 'El monto de créditos no puede superar 20.'
             })
 
         # El solicitante debe tener saldo suficiente (si solicita una oferta)
         if service.type == Service.Type.OFFER:
-            if requester.credits < service.credits:
+            if requester.credits < credits_amount:
                 raise serializers.ValidationError(
                     f'No tienes créditos suficientes. Saldo actual: {requester.credits}, '
-                    f'requeridos: {service.credits}.'
+                    f'requeridos: {credits_amount}.'
                 )
 
         # Evitar duplicados de trade activos para el mismo servicio
@@ -320,7 +537,72 @@ class TradeCreateSerializer(serializers.ModelSerializer):
         service   = validated_data['service']
         requester = self.context['request'].user
         offerer   = service.user
-        return Trade.objects.create(offerer=offerer, requester=requester, **validated_data)
+        return Trade.objects.create(
+            offerer=offerer,
+            requester=requester,
+            last_proposed_by=requester,
+            last_proposed_at=timezone.now(),
+            **validated_data,
+        )
+
+
+class TradeNegotiationSerializer(serializers.Serializer):
+    scheduled_date = serializers.DateTimeField(required=False)
+    credits_amount = serializers.IntegerField(required=False, min_value=1, max_value=20)
+    notes = serializers.CharField(required=False, allow_blank=True, max_length=500)
+    message = serializers.CharField(required=False, allow_blank=True, max_length=500)
+
+    def validate_scheduled_date(self, value):
+        if value <= timezone.now():
+            raise serializers.ValidationError('La fecha programada debe ser en el futuro.')
+        return value
+
+    def validate(self, attrs: dict) -> dict:
+        trade = self.context['trade']
+        request = self.context['request']
+        negotiable_fields = {'scheduled_date', 'credits_amount', 'notes'}
+
+        if trade.status != Trade.Status.PENDING:
+            raise serializers.ValidationError('Solo se pueden negociar intercambios pendientes.')
+        if request.user not in [trade.offerer, trade.requester]:
+            raise serializers.ValidationError('No eres participante de este intercambio.')
+        if not any(field in attrs for field in negotiable_fields):
+            raise serializers.ValidationError('Debes cambiar fecha, créditos o notas.')
+
+        credits_amount = attrs.get('credits_amount', trade.credits_amount)
+        if trade.service.type == Service.Type.OFFER and trade.requester.credits < credits_amount:
+            raise serializers.ValidationError(
+                f'El solicitante no tiene créditos suficientes. Saldo actual: {trade.requester.credits}, '
+                f'requeridos: {credits_amount}.'
+            )
+
+        return attrs
+
+    @transaction.atomic
+    def save(self, **kwargs) -> Trade:
+        trade = self.context['trade']
+        request = self.context['request']
+
+        for field in ['scheduled_date', 'credits_amount', 'notes']:
+            if field in self.validated_data:
+                setattr(trade, field, self.validated_data[field])
+
+        trade.last_proposed_by = request.user
+        trade.last_proposed_at = timezone.now()
+        trade.save(update_fields=[
+            'scheduled_date', 'credits_amount', 'notes',
+            'last_proposed_by', 'last_proposed_at',
+        ])
+
+        create_trade_message(
+            trade=trade,
+            sender=request.user,
+            message_type=Message.Type.TRADE_PROPOSAL,
+            action='negotiated',
+            content='Nueva propuesta de intercambio',
+            message=self.validated_data.get('message', ''),
+        )
+        return trade
 
 
 class TradeStatusUpdateSerializer(serializers.ModelSerializer):
@@ -347,6 +629,14 @@ class TradeStatusUpdateSerializer(serializers.ModelSerializer):
                 f"No se puede pasar de '{current}' a '{value}'. "
                 f"Transiciones permitidas: {allowed or 'ninguna'}."
             )
+        request = self.context.get('request')
+        if (
+            request and value == Trade.Status.ACCEPTED
+            and self.instance.last_proposed_by_id == request.user.id
+        ):
+            raise serializers.ValidationError(
+                'No puedes aceptar tu propia propuesta. Debe aceptarla la otra persona.'
+            )
         return value
 
     @transaction.atomic
@@ -359,6 +649,15 @@ class TradeStatusUpdateSerializer(serializers.ModelSerializer):
             self._transfer_credits(instance)
 
         instance.save()
+        request = self.context.get('request')
+        if request and new_status in [Trade.Status.ACCEPTED, Trade.Status.CANCELLED]:
+            create_trade_message(
+                trade=instance,
+                sender=request.user,
+                message_type=Message.Type.TRADE_STATUS,
+                action=new_status,
+                content='Propuesta aceptada' if new_status == Trade.Status.ACCEPTED else 'Propuesta cancelada',
+            )
         return instance
 
     def _transfer_credits(self, trade: Trade) -> None:
@@ -447,10 +746,15 @@ class TransactionSerializer(serializers.ModelSerializer):
 
 class MessageSerializer(serializers.ModelSerializer):
     sender = UserSerializer(read_only=True)
+    trade = TradeSerializer(read_only=True)
 
     class Meta:
         model  = Message
-        fields = ['id', 'conversation', 'sender', 'content', 'timestamp', 'read']
+        fields = [
+            'id', 'conversation', 'sender', 'content',
+            'message_type', 'trade', 'payload',
+            'timestamp', 'read',
+        ]
         read_only_fields = ['sender', 'timestamp', 'conversation']
 
 
