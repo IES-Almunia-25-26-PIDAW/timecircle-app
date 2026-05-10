@@ -68,6 +68,14 @@ export const Dashboard: React.FC = () => {
     services.filter(s => (typeFilter === 'all' ? true : s.type === typeFilter) && s.status === 'active' && s.userId !== currentUser.id)
   ), [services, typeFilter, currentUser]);
 
+  const mapCenter = useMemo(() => {
+    if (viewerLocation) return viewerLocation;
+    if (typeof currentUser.latitude === 'number' && typeof currentUser.longitude === 'number') {
+      return { lat: currentUser.latitude, lon: currentUser.longitude };
+    }
+    return { lat: 40.4168, lon: -3.7038 };
+  }, [viewerLocation, currentUser.latitude, currentUser.longitude]);
+
   const servicesForMap = useMemo(() => filteredServices.map(s => {
     const user = (s as any).user ?? getUserById(s.userId);
     return {
@@ -129,7 +137,7 @@ export const Dashboard: React.FC = () => {
               </select>
             </div>
           </div>
-          <NearbyServicesMap services={servicesForMap} center={viewerLocation ?? { lat: 40.4168, lon: -3.7038 }} height={320} />
+          <NearbyServicesMap services={servicesForMap} center={mapCenter} height={320} />
           {filteredServices.length === 0 && <div className="text-center text-slate-500 py-3">No hay servicios filtrados.</div>}
         </div>
       </div>
