@@ -5,11 +5,6 @@ from django.utils.translation import gettext_lazy as _
 from django.contrib.auth.models import AbstractUser
 import decimal
 
-
-# ─────────────────────────────────────────────
-#  USER
-# ─────────────────────────────────────────────
-
 class User(AbstractUser):
     """
     Usuario de TimeCircle.
@@ -30,7 +25,29 @@ class User(AbstractUser):
     # ── Perfil ──────────────────────────────
     avatar   = models.URLField(max_length=500, blank=True, default='')
     bio      = models.TextField(max_length=500, blank=True, default='')
+    # Human-readable location (free text) kept for display
     location = models.CharField(max_length=100, blank=True, default='')
+
+    # Precise coordinates (kept private; not exposed to other users)
+    latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+
+    # Structured location fields that can be shown publicly
+    city = models.CharField(max_length=100, blank=True, default='')
+    country = models.CharField(max_length=100, blank=True, default='')
+    # Optional exact address fields (users may provide these if they want)
+    street_address = models.CharField(max_length=250, blank=True, default='')
+    postal_code = models.CharField(max_length=20, blank=True, default='')
+    # If True, the user agrees to share exact address publicly (otherwise address is kept private)
+    share_exact_location = models.BooleanField(default=False)
+
+    # Search / discovery preferences (persisted to profile)
+    search_radius_km = models.PositiveIntegerField(default=25, help_text=_('Radio de búsqueda por defecto en km'))
+    search_my_city_only = models.BooleanField(default=False)
+
+    # Trade / exchange preferences
+    max_trade_distance_km = models.PositiveIntegerField(default=100, help_text=_('Máxima distancia aceptable para intercambios (km)'))
+    trade_my_city_only = models.BooleanField(default=False)
 
     # ── Economía de créditos ─────────────────
     # DecimalField con 1 decimal para soportar bonos de 0,5 cr.
@@ -48,7 +65,7 @@ class User(AbstractUser):
     rating           = models.DecimalField(max_digits=3, decimal_places=2, default=0.00)
     total_reviews    = models.PositiveIntegerField(default=0)
     completed_trades = models.PositiveIntegerField(default=0)
-    badge            = models.CharField(max_length=10, choices=Badge.choices, blank=True, null=True)
+    badge            = models.CharField(max_length=10, choices=Badge.choices, blank=True)
 
     class Meta:
         db_table = 'user_account'
@@ -87,11 +104,6 @@ class User(AbstractUser):
         self.credits += bonus
         self.save(update_fields=['credits'])
 
-
-# ─────────────────────────────────────────────
-#  CATEGORÍAS Y ETIQUETAS
-# ─────────────────────────────────────────────
-
 class Category(models.Model):
     name        = models.CharField(max_length=50, unique=True)
     description = models.TextField(max_length=200, blank=True)
@@ -118,11 +130,6 @@ class Tag(models.Model):
     def __str__(self):
         return self.name
 
-
-# ─────────────────────────────────────────────
-#  HABILIDADES
-# ─────────────────────────────────────────────
-
 class Skill(models.Model):
     name        = models.CharField(max_length=30, unique=True)
     description = models.TextField(max_length=200, blank=True)
@@ -148,11 +155,6 @@ class UserSkill(models.Model):
 
     def __str__(self):
         return f'{self.user.username} → {self.skill.name}'
-
-
-# ─────────────────────────────────────────────
-#  SERVICIOS
-# ─────────────────────────────────────────────
 
 class Service(models.Model):
     class Type(models.TextChoices):
@@ -204,6 +206,11 @@ class Trade(models.Model):
     scheduled_date = models.DateTimeField()
     credits_amount = models.PositiveIntegerField()
     notes          = models.TextField(max_length=500, blank=True)
+    last_proposed_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='trade_proposals_made'
+    )
+    last_proposed_at = models.DateTimeField(null=True, blank=True)
     created_at     = models.DateTimeField(auto_now_add=True)
     completed_at   = models.DateTimeField(null=True, blank=True)
 
@@ -215,11 +222,6 @@ class Trade(models.Model):
 
     def __str__(self):
         return f'Trade #{self.pk} · {self.get_status_display()}'
-
-
-# ─────────────────────────────────────────────
-#  TRANSACCIONES DE CRÉDITOS
-# ─────────────────────────────────────────────
 
 class Transaction(models.Model):
     class Type(models.TextChoices):
@@ -249,11 +251,6 @@ class Transaction(models.Model):
         trade_ref = f'Trade #{self.trade_id}' if self.trade_id else 'Bono'
         return f'{self.user.username} · {self.amount:+} créditos · {trade_ref}'
 
-
-# ─────────────────────────────────────────────
-#  MENSAJERÍA
-# ─────────────────────────────────────────────
-
 class Conversation(models.Model):
     participants = models.ManyToManyField(User, related_name='conversations')
     created_at   = models.DateTimeField(auto_now_add=True)
@@ -271,9 +268,20 @@ class Conversation(models.Model):
 
 
 class Message(models.Model):
+    class Type(models.TextChoices):
+        TEXT           = 'text',           _('Texto')
+        TRADE_PROPOSAL = 'trade_proposal', _('Propuesta de intercambio')
+        TRADE_STATUS   = 'trade_status',   _('Estado de intercambio')
+
     conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name='messages')
     sender       = models.ForeignKey(User,         on_delete=models.CASCADE, related_name='sent_messages')
     content      = models.TextField(max_length=1000)
+    message_type = models.CharField(max_length=20, choices=Type.choices, default=Type.TEXT)
+    trade        = models.ForeignKey(
+        Trade, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='messages'
+    )
+    payload      = models.JSONField(default=dict, blank=True)
     timestamp    = models.DateTimeField(auto_now_add=True)
     read         = models.BooleanField(default=False)
 
@@ -285,12 +293,7 @@ class Message(models.Model):
 
     def __str__(self):
         return f'{self.sender.username}: {self.content[:40]}'
-
-
-# ─────────────────────────────────────────────
-#  RESEÑAS / VALORACIONES
-# ─────────────────────────────────────────────
-
+    
 class Review(models.Model):
     trade      = models.ForeignKey(Trade, on_delete=models.CASCADE, related_name='reviews')
     reviewer   = models.ForeignKey(User,  on_delete=models.CASCADE, related_name='given_reviews')
@@ -314,11 +317,6 @@ class Review(models.Model):
 
     def __str__(self):
         return f'{self.reviewer.username} → {self.reviewee.username} · {self.rating}★'
-
-
-# ─────────────────────────────────────────────
-#  MENSAJES DE CONTACTO
-# ─────────────────────────────────────────────
 
 class ContactMessage(models.Model):
     """
@@ -348,11 +346,6 @@ class ContactMessage(models.Model):
 
     def __str__(self):
         return f'[{self.get_reason_display()}] {self.name} <{self.email}>'
-
-# ─────────────────────────────────────────────
-#  PRESENCIA DE USUARIO (ONLINE / AUSENTE)
-# ─────────────────────────────────────────────
- 
 
 class PasswordResetCode(models.Model):
     """

@@ -54,7 +54,7 @@ class PresenceConsumer(AsyncWebsocketConsumer):
 
     async def disconnect(self, close_code):
         # Leave groups
-        for cid in list(getattr(self, 'subscribed_conversations', set())):
+        for cid in getattr(self, 'subscribed_conversations', set()):
             await self.channel_layer.group_discard(f'conversation_{cid}', self.channel_name)
 
     # Client messages
@@ -67,95 +67,113 @@ class PresenceConsumer(AsyncWebsocketConsumer):
             return
 
         action = data.get('action')
-        if action == 'subscribe':
-            cid = data.get('conversation_id')
-            if cid:
-                await self.channel_layer.group_add(f'conversation_{cid}', self.channel_name)
-                self.subscribed_conversations.add(cid)
-        elif action == 'unsubscribe':
-            cid = data.get('conversation_id')
-            if cid and cid in self.subscribed_conversations:
-                await self.channel_layer.group_discard(f'conversation_{cid}', self.channel_name)
-                self.subscribed_conversations.discard(cid)
-        elif action == 'typing':
-            cid = data.get('conversation_id')
-            is_typing = bool(data.get('is_typing'))
-            # Update presence typing fields
-            try:
-                presence = await self.get_presence()
-                if presence:
-                    if is_typing:
-                        presence.typing_in_id = cid
-                        presence.typing_at = timezone.now()
-                    else:
-                        presence.typing_in_id = None
-                        presence.typing_at = None
-                    await sync_to_async(presence.save)()
-                    # Broadcast typing state to conversation group
-                    await self.channel_layer.group_send(
-                        f'conversation_{cid}',
-                        {
-                            'type': 'presence.message',
-                            'user_id': self.user.id,
-                            'status': presence.effective_status,
-                            'typing': is_typing,
-                        }
-                    )
-            except Exception:
-                logger.warning("Failed to process typing update", exc_info=True)
-        elif action == 'send_message':
-            cid = data.get('conversation_id')
-            content = data.get('content', '').strip()
-            if cid and content:
-                try:
-                    from .models import Message, Conversation
-                    # Verify conversation exists and user is participant
-                    conv = await sync_to_async(Conversation.objects.get)(id=cid)
-                    if self.user in await sync_to_async(lambda: list(conv.participants.all()))():
-                        # Create message
-                        msg = await sync_to_async(Message.objects.create)(
-                            conversation=conv,
-                            sender=self.user,
-                            content=content
-                        )
-                        # Broadcast message to conversation group
-                        await self.channel_layer.group_send(
-                            f'conversation_{cid}',
-                            {
-                                'type': 'message.received',
-                                'id': msg.id,
-                                'conversation_id': cid,
-                                'sender_id': self.user.id,
-                                'sender_name': self.user.get_full_name() or self.user.username,
-                                'sender_avatar': getattr(self.user, 'avatar', ''),
-                                'content': msg.content,
-                                'timestamp': msg.timestamp.isoformat(),
-                                'read': msg.read,
-                            }
-                        )
-                except Exception as e:
-                    logger.error(f'Error sending message: {e}')
-        elif action == 'heartbeat':
-            status = data.get('status', 'online')
-            try:
-                presence = await self.get_presence()
-                if presence:
-                    presence.status = status
-                    presence.last_active = timezone.now()
-                    await sync_to_async(presence.save)()
-                    # Optionally broadcast status to subscribed conversations
-                    for cid in self.subscribed_conversations:
-                        await self.channel_layer.group_send(
-                            f'conversation_{cid}',
-                            {
-                                'type': 'presence.message',
-                                'user_id': self.user.id,
-                                'status': presence.effective_status,
-                                'typing': bool(presence.typing_conversation_id == cid),
-                            }
-                        )
-            except Exception as e:
-                logger.exception("Error handling heartbeat for user %s: %s", getattr(self.user, "id", None), e)
+        handler = self._ACTION_HANDLERS.get(action)
+        if handler:
+            await handler(self, data)
+
+    async def _handle_subscribe(self, data: dict):
+        cid = data.get('conversation_id')
+        if cid:
+            await self.channel_layer.group_add(f'conversation_{cid}', self.channel_name)
+            self.subscribed_conversations.add(cid)
+
+
+    async def _handle_unsubscribe(self, data: dict):
+        cid = data.get('conversation_id')
+        if cid and cid in self.subscribed_conversations:
+            await self.channel_layer.group_discard(f'conversation_{cid}', self.channel_name)
+            self.subscribed_conversations.discard(cid)
+
+
+    async def _handle_typing(self, data: dict):
+        cid = data.get('conversation_id')
+        is_typing = bool(data.get('is_typing'))
+        try:
+            presence = await self.get_presence()
+            if not presence:
+                return
+            presence.typing_in_id = cid if is_typing else None
+            presence.typing_at    = timezone.now() if is_typing else None
+            await sync_to_async(presence.save)()
+            await self.channel_layer.group_send(
+                f'conversation_{cid}',
+                {
+                    'type':    'presence.message',
+                    'user_id': self.user.id,
+                    'status':  presence.effective_status,
+                    'typing':  is_typing,
+                },
+            )
+        except Exception:
+            logger.warning("Failed to process typing update", exc_info=True)
+
+
+    async def _handle_send_message(self, data: dict):
+        from .models import Message, Conversation
+
+        cid     = data.get('conversation_id')
+        content = data.get('content', '').strip()
+        if not (cid and content):
+            return
+        try:
+            conv         = await sync_to_async(Conversation.objects.get)(id=cid)
+            participants = await sync_to_async(lambda: list(conv.participants.all()))()
+            if self.user not in participants:
+                return
+            msg = await sync_to_async(Message.objects.create)(
+                conversation=conv,
+                sender=self.user,
+                content=content,
+            )
+            await self.channel_layer.group_send(
+                f'conversation_{cid}',
+                {
+                    'type':          'message.received',
+                    'id':            msg.id,
+                    'conversation_id': cid,
+                    'sender_id':     self.user.id,
+                    'sender_name':   self.user.get_full_name() or self.user.username,
+                    'sender_avatar': getattr(self.user, 'avatar', ''),
+                    'content':       msg.content,
+                    'timestamp':     msg.timestamp.isoformat(),
+                    'read':          msg.read,
+                },
+            )
+        except Exception as e:
+            logger.error('Error sending message: %s', e)
+
+
+    async def _handle_heartbeat(self, data: dict):
+        try:
+            presence = await self.get_presence()
+            if not presence:
+                return
+            presence.status      = data.get('status', 'online')
+            presence.last_active = timezone.now()
+            await sync_to_async(presence.save)()
+            for cid in self.subscribed_conversations:
+                await self.channel_layer.group_send(
+                    f'conversation_{cid}',
+                    {
+                        'type':    'presence.message',
+                        'user_id': self.user.id,
+                        'status':  presence.effective_status,
+                        'typing':  bool(presence.typing_conversation_id == cid),
+                    },
+                )
+        except Exception as e:
+            logger.exception(
+                "Error handling heartbeat for user %s: %s",
+                getattr(self.user, 'id', None), e,
+            )
+
+    _ACTION_HANDLERS = {
+        'subscribe':    _handle_subscribe,
+        'unsubscribe':  _handle_unsubscribe,
+        'typing':       _handle_typing,
+        'send_message': _handle_send_message,
+        'heartbeat':    _handle_heartbeat,
+    }
 
     # Handler for messages sent to groups
     async def presence_message(self, event):
@@ -186,8 +204,8 @@ class PresenceConsumer(AsyncWebsocketConsumer):
     async def get_user(self, user_id):
         try:
             from django.contrib.auth import get_user_model
-            User = get_user_model()
-            return await sync_to_async(User.objects.get)(id=user_id)
+            user = get_user_model()
+            return await sync_to_async(user.objects.get)(id=user_id)
         except Exception:
             return None
 

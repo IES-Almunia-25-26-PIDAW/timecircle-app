@@ -9,7 +9,7 @@ Cubre:
   · Transaction   → __str__, amount positivo/negativo
   · Conversation  → participantes, __str__
   · Message       → __str__, read por defecto
-  · Review        → __str__, constraint rating 1–5
+  · Review        → __str__, constraint rating 1-5
 """
 
 from django.test import TestCase
@@ -27,11 +27,6 @@ from .factories import (
     make_service, make_trade, make_completed_trade,
     make_conversation, make_message, make_review,
 )
-
-
-# ══════════════════════════════════════════════
-#  USER
-# ══════════════════════════════════════════════
 
 class UserModelTests(TestCase):
 
@@ -54,9 +49,9 @@ class UserModelTests(TestCase):
         self.assertEqual(float(self.user.rating), 0.00)
 
     def test_default_badge_is_none(self):
-        self.assertIsNone(self.user.badge)
+        self.assertEqual(self.user.badge, '')
 
-    # ── __str__ ──────────────────────────────
+    # ── __str__ ─────────────────────────────
 
     def test_str_with_full_name(self):
         result = str(self.user)
@@ -128,11 +123,6 @@ class UserModelTests(TestCase):
         self.assertEqual(float(self.user.rating), 3.00)
         self.assertEqual(self.user.total_reviews, 2)
 
-
-# ══════════════════════════════════════════════
-#  CATEGORÍA / TAG / SKILL / USERSKILL
-# ══════════════════════════════════════════════
-
 class CategoryModelTests(TestCase):
 
     def test_str(self):
@@ -180,11 +170,6 @@ class UserSkillModelTests(TestCase):
         with self.assertRaises(IntegrityError):
             UserSkill.objects.create(user=user, skill=skill)
 
-
-# ══════════════════════════════════════════════
-#  SERVICE
-# ══════════════════════════════════════════════
-
 class ServiceModelTests(TestCase):
 
     def setUp(self):
@@ -204,8 +189,8 @@ class ServiceModelTests(TestCase):
         self.assertEqual(service.status, Service.Status.ACTIVE)
 
     def test_ordering_newest_first(self):
-        s1 = make_service(self.user, title="Primero")
-        s2 = make_service(self.user, title="Segundo")
+        make_service(self.user, title="Primero")
+        make_service(self.user, title="Segundo")
         services = list(Service.objects.all())
         # El más reciente debe ser el primero
         self.assertEqual(services[0].title, "Segundo")
@@ -224,11 +209,6 @@ class ServiceModelTests(TestCase):
         tag2 = make_tag("tag2")
         service.tags.set([tag1, tag2])
         self.assertEqual(service.tags.count(), 2)
-
-
-# ══════════════════════════════════════════════
-#  TRADE
-# ══════════════════════════════════════════════
 
 class TradeModelTests(TestCase):
 
@@ -254,11 +234,7 @@ class TradeModelTests(TestCase):
         t2 = make_trade(self.offerer, self.requester)
         trades = list(Trade.objects.all())
         self.assertEqual(trades[0].pk, t2.pk)
-
-
-# ══════════════════════════════════════════════
-#  TRANSACTION
-# ══════════════════════════════════════════════
+        self.assertEqual(trades[1].pk, t1.pk)
 
 class TransactionModelTests(TestCase):
 
@@ -282,11 +258,6 @@ class TransactionModelTests(TestCase):
             amount=-2, transaction_type=Transaction.Type.DEBIT
         )
         self.assertIn("-2", str(tx))
-
-
-# ══════════════════════════════════════════════
-#  CONVERSATION / MESSAGE
-# ══════════════════════════════════════════════
 
 class ConversationModelTests(TestCase):
 
@@ -327,11 +298,7 @@ class MessageModelTests(TestCase):
         m2   = make_message(conv, u2, "Segundo")
         msgs = list(conv.messages.all())
         self.assertEqual(msgs[0].pk, m1.pk)
-
-
-# ══════════════════════════════════════════════
-#  REVIEW
-# ══════════════════════════════════════════════
+        self.assertEqual(msgs[1].pk, m2.pk)
 
 class ReviewModelTests(TestCase):
 
@@ -357,10 +324,11 @@ class ReviewModelTests(TestCase):
             )
 
     def test_ordering_newest_first(self):
-        r1 = make_review(self.trade, self.offerer, self.requester, rating=3)
+        r1         = make_review(self.trade, self.offerer, self.requester, rating=3)
         # Crear un segundo trade para una segunda reseña
         offerer2   = make_user(username="off2_rev", email="off2_rev@x.com")
         trade2     = make_completed_trade(offerer2, self.requester)
         r2         = make_review(trade2, offerer2, self.requester, rating=5)
         reviews    = list(Review.objects.all())
         self.assertEqual(reviews[0].pk, r2.pk)
+        self.assertEqual(reviews[1].pk, r1.pk)

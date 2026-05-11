@@ -5,6 +5,8 @@ import {
   AlertTriangle, Eye, Settings
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { apiAdminGetStats } from '../api/endpoints';
+import GeoOverviewMap from '../components/GeoOverviewMap';
 import { CATEGORIES } from '../data/mockData';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -64,6 +66,22 @@ export const Admin: React.FC = () => {
   const assignBadge = (userId: string, badge: 'gold' | 'silver' | 'bronze' | undefined) => {
     adminUpdateUser(userId, { badge });
   };
+
+  const [geoStats, setGeoStats] = useState<{ user_cells: any[]; service_cells: any[] } | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const data = await apiAdminGetStats();
+        if (!cancelled) setGeoStats(data);
+      } catch (e) {
+        // ignore
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, []);
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -129,6 +147,21 @@ export const Admin: React.FC = () => {
                 <Bar dataKey="count" name="Servicios" fill="#0d9488" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
+          </div>
+
+          {/* Geographic overview */}
+          <div className="bg-white border border-slate-100 rounded-2xl p-5">
+            <h2 className="text-slate-900 mb-4" style={{ fontSize: '1rem', fontWeight: 600 }}>Visión geográfica (agregada)</h2>
+            <div style={{ height: 360 }}>
+              <GeoOverviewMap
+                center={{ lat: 40.4168, lon: -3.7038 }}
+                zoom={6}
+                userCells={geoStats?.user_cells || []}
+                serviceCells={geoStats?.service_cells || []}
+                height={360}
+              />
+            </div>
+            <div className="text-slate-500 text-sm mt-2">Zonas aproximadas agregadas para mostrar densidad de usuarios y servicios sin exponer ubicaciones precisas.</div>
           </div>
 
           {/* Badge holders */}

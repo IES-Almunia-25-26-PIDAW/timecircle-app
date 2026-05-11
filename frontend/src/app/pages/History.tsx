@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
-import { CATEGORIES } from '../data/mockData';
+import { CATEGORIES, type Trade } from '../data/mockData';
 
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
   pending: { label: 'Pendiente', className: 'bg-amber-100 text-amber-700' },
@@ -17,6 +17,38 @@ const STATUS_LABELS: Record<string, { label: string; className: string }> = {
 };
 
 const PIE_COLORS = ['#0d9488', '#f59e0b', '#8b5cf6', '#ec4899', '#3b82f6', '#10b981'];
+
+const getLastSixMonthsActivity = (trades: Trade[], userId: string) => {
+  const now = new Date();
+  const months = Array.from({ length: 6 }, (_, index) => {
+    const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1);
+    return {
+      key: `${date.getFullYear()}-${date.getMonth()}`,
+      month: date.toLocaleDateString('es-ES', { month: 'short' }).replace('.', ''),
+      dados: 0,
+      recibidos: 0,
+    };
+  });
+
+  const monthByKey = new Map(months.map(month => [month.key, month]));
+
+  trades.forEach(trade => {
+    const activityDate = new Date(trade.completedAt || trade.scheduledDate);
+    if (Number.isNaN(activityDate.getTime())) return;
+
+    const key = `${activityDate.getFullYear()}-${activityDate.getMonth()}`;
+    const month = monthByKey.get(key);
+    if (!month) return;
+
+    if (trade.offererId === userId) {
+      month.dados += trade.creditsAmount;
+    } else if (trade.requesterId === userId) {
+      month.recibidos += trade.creditsAmount;
+    }
+  });
+
+  return months;
+};
 
 export const History: React.FC = () => {
   const { currentUser, getUserTrades, getServiceById, getUserById, getUserReviews, services } = useApp();
@@ -41,6 +73,7 @@ export const History: React.FC = () => {
   const totalHoursReceived = completedTrades
     .filter(t => t.requesterId === currentUser.id)
     .reduce((acc, t) => acc + t.creditsAmount, 0);
+  const monthlyData = getLastSixMonthsActivity(completedTrades, currentUser.id);
 
   // Category distribution
   const catData = CATEGORIES.map(cat => {
@@ -50,16 +83,6 @@ export const History: React.FC = () => {
     }).length;
     return { name: cat.label, value: count, icon: cat.icon };
   }).filter(d => d.value > 0);
-
-  // Monthly activity (mock)
-  const monthlyData = [
-    { month: 'Ene', dados: 1, recibidos: 0 },
-    { month: 'Feb', dados: 2, recibidos: 1 },
-    { month: 'Mar', dados: 1, recibidos: 2 },
-    { month: 'Abr', dados: 3, recibidos: 1 },
-    { month: 'May', dados: 2, recibidos: 2 },
-    { month: 'Jun', dados: currentUser.hoursGiven > 0 ? 3 : 0, recibidos: currentUser.hoursReceived > 0 ? 2 : 0 },
-  ];
 
   // My services category distribution
   const myServices = services.filter(s => s.userId === currentUser.id);

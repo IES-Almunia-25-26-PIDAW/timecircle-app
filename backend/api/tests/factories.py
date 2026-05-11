@@ -1,5 +1,5 @@
 """
-factories.py – Helpers reutilizables para crear fixtures en los tests de TimeCircle.
+factories.py - Helpers reutilizables para crear fixtures en los tests de TimeCircle.
 Importa desde aquí en cualquier test para evitar duplicación de código.
 """
 
@@ -11,11 +11,6 @@ from api.models import (
     Service, Trade, Transaction,
     Conversation, Message, Review,
 )
-
-
-# ─────────────────────────────────────────────
-#  USUARIOS
-# ─────────────────────────────────────────────
 
 def make_user(
     username="testuser",
@@ -41,11 +36,6 @@ def make_admin(username="admin", email="admin@example.com", password="Admin!Pass
         username=username, email=email, password=password
     )
 
-
-# ─────────────────────────────────────────────
-#  CATÁLOGO
-# ─────────────────────────────────────────────
-
 def make_category(name="Tecnología", description="Servicios tecnológicos", icon="monitor") -> Category:
     category, _ = Category.objects.get_or_create(
         name=name,
@@ -65,11 +55,6 @@ def make_skill(name="Programación", description="Desarrollo de software") -> Sk
         defaults={"description": description},
     )
     return skill
-
-
-# ─────────────────────────────────────────────
-#  SERVICIOS
-# ─────────────────────────────────────────────
 
 def make_service(
     user: User,
@@ -93,11 +78,6 @@ def make_service(
         credits=credits,
         status=status,
     )
-
-
-# ─────────────────────────────────────────────
-#  TRADES
-# ─────────────────────────────────────────────
 
 def make_trade(
     offerer: User,
@@ -145,11 +125,6 @@ def make_completed_trade(offerer: User, requester: User, credits_amount: int = 2
     )
     return trade
 
-
-# ─────────────────────────────────────────────
-#  MENSAJERÍA
-# ─────────────────────────────────────────────
-
 def make_conversation(*users) -> Conversation:
     conv = Conversation.objects.create()
     conv.participants.set(users)
@@ -160,11 +135,6 @@ def make_message(conversation: Conversation, sender: User, content: str = "Hola!
     return Message.objects.create(
         conversation=conversation, sender=sender, content=content
     )
-
-
-# ─────────────────────────────────────────────
-#  RESEÑAS
-# ─────────────────────────────────────────────
 
 def make_review(
     trade: Trade,

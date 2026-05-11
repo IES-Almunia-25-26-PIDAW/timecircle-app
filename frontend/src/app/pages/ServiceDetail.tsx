@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { CATEGORIES } from '../data/mockData';
+import ProfileMap from '../components/ProfileMap';
 
 export const ServiceDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -16,6 +17,8 @@ export const ServiceDetail: React.FC = () => {
   } = useApp();
 
   const [scheduledDate, setScheduledDate] = useState('');
+  const [scheduledTime, setScheduledTime] = useState('10:00');
+  const [creditsAmount, setCreditsAmount] = useState<number | ''>('');
   const [notes, setNotes]                 = useState('');
   const [showBooking, setShowBooking]     = useState(false);
   const [booked, setBooked]               = useState(false);
@@ -36,19 +39,30 @@ export const ServiceDetail: React.FC = () => {
   const ownerReviews = getUserReviews(service.userId);
   const cat          = CATEGORIES.find(c => c.id === service.category);
   const isOwner      = currentUser?.id === service.userId;
+  const ownerLat = owner?.latitude ?? null;
+  const ownerLon = owner?.longitude ?? null;
+  const canShowExact = owner && (owner.shareExactLocation || (currentUser && currentUser.id === owner.id) || currentUser?.isAdmin);
+  const hasExactLocation = canShowExact && Number.isFinite(ownerLat) && Number.isFinite(ownerLon);
   const minDateStr = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   const handleBook = async () => {
     setBookError('');
     if (!scheduledDate) { setBookError('Por favor selecciona una fecha'); return; }
-    if (!isOwner && currentUser && service.type === 'offer' && currentUser.credits < service.credits) {
-      setBookError(`No tienes suficientes créditos. Necesitas ${service.credits}h y tienes ${currentUser.credits}h.`);
+    if (!scheduledTime) { setBookError('Por favor selecciona una hora'); return; }
+    const proposedCredits = Number(creditsAmount || service.credits);
+    if (!Number.isFinite(proposedCredits) || proposedCredits < 1) {
+      setBookError('Los créditos propuestos deben ser al menos 1.');
+      return;
+    }
+    if (!isOwner && currentUser && service.type === 'offer' && currentUser.credits < proposedCredits) {
+      setBookError(`No tienes suficientes créditos. Necesitas ${proposedCredits}h y tienes ${currentUser.credits}h.`);
       return;
     }
     setBooking(true);
     // Validar que la fecha seleccionada sea al menos 1 día desde hoy
     const [y, m, d] = scheduledDate.split('-').map(Number);
-    const selected = new Date(y, m - 1, d);
+    const [hh, mm] = scheduledTime.split(':').map(Number);
+    const selected = new Date(y, m - 1, d, hh || 0, mm || 0);
     const now = new Date();
     const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const minAllowed = new Date(todayMidnight.getTime() + 24 * 60 * 60 * 1000); // mañana 00:00
@@ -59,16 +73,19 @@ export const ServiceDetail: React.FC = () => {
       return;
     }
     try {
-      await createTrade({
+      const result = await createTrade({
         serviceId:     service.id,
         offererId:     service.type === 'offer' ? service.userId : currentUser!.id,
         requesterId:   service.type === 'offer' ? currentUser!.id : service.userId,
         status:        'pending',
-        scheduledDate: new Date(scheduledDate).toISOString(),
-        creditsAmount: service.credits,
+        scheduledDate: selected.toISOString(),
+        creditsAmount: proposedCredits,
         notes,
       });
       setBooked(true);
+      if (result?.conversationId) {
+        navigate(`/messages?conv=${result.conversationId}`);
+      }
     } catch (e: any) {
       const errMsg = e?.detail || e?.non_field_errors?.[0] || e?.message || 'Error al crear el intercambio';
       setBookError(errMsg);
@@ -169,6 +186,15 @@ export const ServiceDetail: React.FC = () => {
             )}
           </div>
 
+            {/* Distance indicator for the service (if available) */}
+            {service.distanceKm !== undefined && (
+              <div className="mb-4">
+                <div className="text-slate-600" style={{ fontSize: '0.95rem', fontWeight: 700 }}>
+                  {service.distanceKm} km desde ti
+                </div>
+              </div>
+            )}
+
           {/* Reviews */}
           {ownerReviews.length > 0 && (
             <div className="bg-white border border-slate-100 rounded-2xl p-6">
@@ -236,6 +262,22 @@ export const ServiceDetail: React.FC = () => {
               </div>
             )}
 
+            {/* Provider location from the profile (not viewer live location) */}
+            {hasExactLocation ? (
+              <div className="bg-white border border-slate-100 rounded-2xl p-3">
+                <h4 className="text-slate-700 mb-2" style={{ fontSize: '0.9rem', fontWeight: 600 }}>Ubicación del proveedor</h4>
+                <div style={{ height: 320 }}>
+                  <ProfileMap lat={Number(ownerLat)} lon={Number(ownerLon)} zoom={13} />
+                </div>
+                <div className="text-slate-500 text-sm mt-2">Se muestra la ubicación guardada en el perfil del proveedor.</div>
+              </div>
+            ) : (
+              <div className="bg-white border border-slate-100 rounded-2xl p-3">
+                <h4 className="text-slate-700 mb-2" style={{ fontSize: '0.9rem', fontWeight: 600 }}>Ubicación del proveedor</h4>
+                <div className="text-slate-500 text-sm mt-2">{owner?.city ? `${owner.city}${owner.country ? ', ' + owner.country : ''}` : 'Ubicación no disponible'}</div>
+              </div>
+            )}
+
             {!isOwner && (
               <div className="space-y-2">
                 {!booked ? (
@@ -264,7 +306,7 @@ export const ServiceDetail: React.FC = () => {
           {/* Booking form */}
           {showBooking && !booked && (
             <div className="bg-white border border-teal-200 rounded-2xl p-5">
-              <h3 className="text-slate-700 mb-4" style={{ fontWeight: 600, fontSize: '0.9rem' }}>Selecciona fecha</h3>
+              <h3 className="text-slate-700 mb-4" style={{ fontWeight: 600, fontSize: '0.9rem' }}>Propuesta de reserva</h3>
               {bookError && (
                 <div className="flex items-center gap-2 bg-red-50 text-red-700 px-3 py-2 rounded-xl mb-3">
                   <AlertCircle className="w-4 h-4" />
@@ -284,7 +326,29 @@ export const ServiceDetail: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-600 mb-1" style={{ fontSize: '0.8rem', fontWeight: 500 }}>Notas (opcional)</label>
+                  <label className="block text-slate-600 mb-1" style={{ fontSize: '0.8rem', fontWeight: 500 }}>Hora propuesta</label>
+                  <input
+                    type="time"
+                    value={scheduledTime}
+                    onChange={e => setScheduledTime(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    style={{ fontSize: '0.875rem' }}
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-600 mb-1" style={{ fontSize: '0.8rem', fontWeight: 500 }}>Créditos propuestos</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={creditsAmount === '' ? service.credits : creditsAmount}
+                    onChange={e => setCreditsAmount(Number(e.target.value))}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    style={{ fontSize: '0.875rem' }}
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-600 mb-1" style={{ fontSize: '0.8rem', fontWeight: 500 }}>Mensaje y notas (opcional)</label>
                   <textarea
                     value={notes}
                     onChange={e => setNotes(e.target.value)}
@@ -295,7 +359,7 @@ export const ServiceDetail: React.FC = () => {
                   />
                 </div>
                 <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2" style={{ fontSize: '0.8rem' }}>
-                  <span className="text-amber-700">Se transferirán <strong>{service.credits}h</strong> al completar</span>
+                  <span className="text-amber-700">La otra persona podrá aceptar, cancelar o negociar esta propuesta.</span>
                 </div>
                 <button onClick={handleBook} disabled={booking} className="w-full py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl transition-colors disabled:opacity-60 flex items-center justify-center gap-2" style={{ fontWeight: 600, fontSize: '0.875rem' }}>
                   {booking && <Loader2 className="w-4 h-4 animate-spin" />}

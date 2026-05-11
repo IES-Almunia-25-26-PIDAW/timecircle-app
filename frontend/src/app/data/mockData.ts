@@ -8,7 +8,15 @@ export interface User {
   avatar: string;
   bio: string;
   location: string;
+  city?: string;
+  country?: string;
+  latitude?: number;
+  longitude?: number;
+  distanceKm?: number;
   credits: number;
+  streetAddress?: string;
+  postalCode?: string;
+  shareExactLocation?: boolean;
   rating: number;
   totalReviews: number;
   memberSince: string;
@@ -18,6 +26,11 @@ export interface User {
   isAdmin?: boolean;
   hoursGiven: number;
   hoursReceived: number;
+  // Location & preference fields
+  searchRadiusKm?: number;
+  searchMyCityOnly?: boolean;
+  maxTradeDistanceKm?: number;
+  tradeMyCityOnly?: boolean;
 }
 
 export interface Service {
@@ -32,6 +45,9 @@ export interface Service {
   status: 'active' | 'paused' | 'completed';
   createdAt: string;
   tags: string[];
+  // Optional location helpers provided by the API when viewer coords are sent
+  distanceKm?: number;
+  proximity?: 'very_close' | 'close' | 'medium' | 'far';
 }
 
 export interface Trade {
@@ -45,6 +61,9 @@ export interface Trade {
   createdAt: string;
   completedAt?: string;
   notes?: string;
+  lastProposedById?: string;
+  lastProposedAt?: string;
+  conversationId?: string;
 }
 
 export interface Message {
@@ -52,6 +71,9 @@ export interface Message {
   conversationId: string;
   senderId: string;
   content: string;
+  messageType?: 'text' | 'trade_proposal' | 'trade_status';
+  trade?: Trade;
+  payload?: any;
   timestamp: string;
   read: boolean;
 }

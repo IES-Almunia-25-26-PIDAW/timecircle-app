@@ -12,7 +12,10 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router';
-import { MessageCircle, Send, Search, ArrowLeft, Loader2, Circle } from 'lucide-react';
+import {
+  MessageCircle, Send, Search, ArrowLeft, Loader2, Circle,
+  Calendar, Clock, Coins, Check, X, Pencil,
+} from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Conversation, Message } from '../data/mockData';
 import { apiGetConversation } from '../api/endpoints';
@@ -56,6 +59,23 @@ const mapApiMsg = (m: any, convId: string): Message => ({
   conversationId: convId,
   senderId: String(m.sender?.id ?? m.sender ?? ''),
   content: m.content,
+  messageType: m.message_type || 'text',
+  trade: m.trade ? {
+    id: String(m.trade.id),
+    serviceId: String(m.trade.service?.id ?? m.trade.service ?? ''),
+    offererId: String(m.trade.offerer?.id ?? m.trade.offerer ?? ''),
+    requesterId: String(m.trade.requester?.id ?? m.trade.requester ?? ''),
+    status: m.trade.status,
+    scheduledDate: m.trade.scheduled_date || '',
+    creditsAmount: m.trade.credits_amount ?? 0,
+    createdAt: (m.trade.created_at || '').split('T')[0] || '',
+    completedAt: m.trade.completed_at ? (m.trade.completed_at || '').split('T')[0] : undefined,
+    notes: m.trade.notes || '',
+    lastProposedById: m.trade.last_proposed_by ? String(m.trade.last_proposed_by?.id ?? m.trade.last_proposed_by) : undefined,
+    lastProposedAt: m.trade.last_proposed_at || undefined,
+    conversationId: m.trade.conversation_id ? String(m.trade.conversation_id) : undefined,
+  } : undefined,
+  payload: m.payload || undefined,
   timestamp: m.timestamp,
   read: m.read ?? false,
 });
@@ -139,6 +159,188 @@ const NewMessagesSeparator: React.FC = () => (
     <div className="flex-1 h-px bg-gradient-to-l from-transparent via-teal-400 to-teal-400 dark:via-teal-500 dark:to-teal-500" />
   </div>
 );
+
+const toDateInput = (value?: string) => {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toISOString().slice(0, 10);
+};
+
+const toTimeInput = (value?: string) => {
+  if (!value) return '10:00';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '10:00';
+  return d.toTimeString().slice(0, 5);
+};
+
+const combineDateTime = (date: string, time: string) => {
+  const [year, month, day] = date.split('-').map(Number);
+  const [hour, minute] = time.split(':').map(Number);
+  return new Date(year, month - 1, day, hour || 0, minute || 0).toISOString();
+};
+
+const ReservationMessageCard: React.FC<{
+  msg: Message;
+  isMe: boolean;
+}> = ({ msg, isMe }) => {
+  const {
+    currentUser, updateTrade, negotiateTrade,
+    refreshConversationMessages, refreshTrades,
+  } = useApp();
+  const trade = msg.trade;
+  const payload = msg.payload || {};
+  const status = trade?.status || payload.status;
+  const scheduled = trade?.scheduledDate || payload.scheduled_date;
+  const credits = trade?.creditsAmount ?? payload.credits_amount;
+  const notes = trade?.notes ?? payload.notes;
+  const serviceTitle = payload.service?.title || 'Intercambio';
+  const lastProposedBy = trade?.lastProposedById || (payload.last_proposed_by ? String(payload.last_proposed_by) : undefined);
+  const canAct = Boolean(trade?.id && status === 'pending');
+  const canAccept = canAct && currentUser?.id !== lastProposedBy;
+  const [negotiating, setNegotiating] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [date, setDate] = useState(toDateInput(scheduled));
+  const [time, setTime] = useState(toTimeInput(scheduled));
+  const [draftCredits, setDraftCredits] = useState<number>(Number(credits || 1));
+  const [draftNotes, setDraftNotes] = useState(notes || '');
+  const [draftMessage, setDraftMessage] = useState('');
+
+  const refresh = async () => {
+    await refreshTrades();
+    await refreshConversationMessages(msg.conversationId);
+  };
+
+  const accept = async () => {
+    if (!trade?.id || !canAccept) return;
+    setBusy(true);
+    await updateTrade(trade.id, { status: 'accepted' });
+    await refresh();
+    setBusy(false);
+  };
+
+  const cancel = async () => {
+    if (!trade?.id || !canAct) return;
+    setBusy(true);
+    await updateTrade(trade.id, { status: 'cancelled' });
+    await refresh();
+    setBusy(false);
+  };
+
+  const submitNegotiation = async () => {
+    if (!trade?.id || !date || !time) return;
+    setBusy(true);
+    await negotiateTrade(trade.id, {
+      scheduledDate: combineDateTime(date, time),
+      creditsAmount: draftCredits,
+      notes: draftNotes,
+      message: draftMessage,
+    });
+    await refresh();
+    setNegotiating(false);
+    setBusy(false);
+  };
+
+  const statusLabel: Record<string, string> = {
+    pending: 'Pendiente',
+    accepted: 'Aceptada',
+    cancelled: 'Cancelada',
+    in_progress: 'En curso',
+    completed: 'Completada',
+  };
+
+  return (
+    <div className={`rounded-2xl border p-3 shadow-sm ${
+      isMe
+        ? 'bg-teal-50 border-teal-200 text-slate-900'
+        : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100'
+    }`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-teal-700 dark:text-teal-300">
+            Propuesta de reserva
+          </div>
+          <div className="mt-1 font-semibold" style={{ fontSize: '0.92rem' }}>{serviceTitle}</div>
+        </div>
+        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+          status === 'accepted' ? 'bg-green-100 text-green-700'
+            : status === 'cancelled' ? 'bg-red-100 text-red-700'
+              : 'bg-amber-100 text-amber-700'
+        }`}>
+          {statusLabel[status] || status}
+        </span>
+      </div>
+
+      <div className="mt-3 grid gap-2 text-sm">
+        <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
+          <Calendar className="w-4 h-4 text-teal-600" />
+          {scheduled ? new Date(scheduled).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' }) : 'Sin fecha'}
+          <Clock className="ml-2 w-4 h-4 text-teal-600" />
+          {scheduled ? new Date(scheduled).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '--:--'}
+        </div>
+        <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
+          <Coins className="w-4 h-4 text-amber-500" />
+          {credits} créditos
+        </div>
+        {notes && <div className="rounded-xl bg-white/70 dark:bg-slate-900/40 px-3 py-2 text-slate-600 dark:text-slate-300">{notes}</div>}
+        {payload.message && payload.message !== notes && (
+          <div className="text-slate-500 dark:text-slate-400">{payload.message}</div>
+        )}
+      </div>
+
+      {canAct && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={accept}
+            disabled={!canAccept || busy}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-45"
+          >
+            <Check className="w-3.5 h-3.5" />
+            Aceptar
+          </button>
+          <button
+            type="button"
+            onClick={() => setNegotiating(v => !v)}
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-45 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-200"
+          >
+            <Pencil className="w-3.5 h-3.5" />
+            Negociar
+          </button>
+          <button
+            type="button"
+            onClick={cancel}
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-600 disabled:opacity-45 dark:bg-slate-900"
+          >
+            <X className="w-3.5 h-3.5" />
+            Cancelar
+          </button>
+        </div>
+      )}
+
+      {canAct && !canAccept && (
+        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Esperando respuesta de la otra persona.</p>
+      )}
+
+      {negotiating && (
+        <div className="mt-3 space-y-2 rounded-xl border border-slate-200 bg-white p-3 dark:bg-slate-900 dark:border-slate-700">
+          <div className="grid grid-cols-2 gap-2">
+            <input type="date" value={date} onChange={e => setDate(e.target.value)} className="rounded-lg border px-2 py-1.5 text-sm dark:bg-slate-800 dark:border-slate-700" />
+            <input type="time" value={time} onChange={e => setTime(e.target.value)} className="rounded-lg border px-2 py-1.5 text-sm dark:bg-slate-800 dark:border-slate-700" />
+          </div>
+          <input type="number" min={1} max={20} value={draftCredits} onChange={e => setDraftCredits(Number(e.target.value))} className="w-full rounded-lg border px-2 py-1.5 text-sm dark:bg-slate-800 dark:border-slate-700" />
+          <textarea value={draftNotes} onChange={e => setDraftNotes(e.target.value)} rows={2} className="w-full resize-none rounded-lg border px-2 py-1.5 text-sm dark:bg-slate-800 dark:border-slate-700" placeholder="Notas de la propuesta" />
+          <input value={draftMessage} onChange={e => setDraftMessage(e.target.value)} className="w-full rounded-lg border px-2 py-1.5 text-sm dark:bg-slate-800 dark:border-slate-700" placeholder="Mensaje opcional" />
+          <button type="button" onClick={submitNegotiation} disabled={busy} className="w-full rounded-lg bg-teal-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
+            Enviar contrapropuesta
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ── Conversation list item ────────────────────────────────
 const ConvItem: React.FC<{
@@ -241,6 +443,8 @@ export const Messages: React.FC = () => {
   // Typing send state
   const typingStopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingSentRef = useRef(false);
+  // Prevent overlapping presence polls
+  const presencePollingRef = useRef(false);
 
   // Send button pulse
   const [sendPulse, setSendPulse] = useState(false);
@@ -315,8 +519,16 @@ export const Messages: React.FC = () => {
 
     // Polling para obtener presencia (se ejecuta siempre, como fallback para WS)
     const poll = async () => {
-      const presence = await apiGetPresence(otherUserId, selectedConvId);
-      setOtherPresence(presence);
+      if (presencePollingRef.current) return;
+      presencePollingRef.current = true;
+      try {
+        const presence = await apiGetPresence(otherUserId, selectedConvId);
+        setOtherPresence(presence);
+      } catch (e) {
+        // ignore poll errors
+      } finally {
+        presencePollingRef.current = false;
+      }
     };
 
     poll();
@@ -655,25 +867,37 @@ export const Messages: React.FC = () => {
                             )}
                             <div
                               className={isMe ? 'tc-msg-mine' : 'tc-msg-theirs'}
-                              style={{ maxWidth: '72%' }}
+                              style={{ maxWidth: msg.messageType === 'trade_proposal' || msg.messageType === 'trade_status' ? '88%' : '72%' }}
                             >
-                              <div
-                                className={`px-4 py-2.5 rounded-2xl ${
-                                  isMe
-                                    ? 'bg-teal-600 text-white rounded-br-sm'
-                                    : 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-slate-100 rounded-bl-sm'
-                                }`}
-                              >
-                                <p
-                                  style={{
-                                    fontSize: '0.875rem',
-                                    lineHeight: 1.5,
-                                    wordBreak: 'break-word',
-                                  }}
-                                >
+                              {msg.messageType === 'trade_proposal' ? (
+                                <ReservationMessageCard msg={msg} isMe={isMe} />
+                              ) : msg.messageType === 'trade_status' ? (
+                                <div className={`rounded-2xl border px-4 py-2.5 text-sm ${
+                                  msg.payload?.action === 'accepted'
+                                    ? 'border-green-200 bg-green-50 text-green-700'
+                                    : 'border-red-200 bg-red-50 text-red-700'
+                                }`}>
                                   {msg.content}
-                                </p>
-                              </div>
+                                </div>
+                              ) : (
+                                <div
+                                  className={`px-4 py-2.5 rounded-2xl ${
+                                    isMe
+                                      ? 'bg-teal-600 text-white rounded-br-sm'
+                                      : 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-slate-100 rounded-bl-sm'
+                                  }`}
+                                >
+                                  <p
+                                    style={{
+                                      fontSize: '0.875rem',
+                                      lineHeight: 1.5,
+                                      wordBreak: 'break-word',
+                                    }}
+                                  >
+                                    {msg.content}
+                                  </p>
+                                </div>
+                              )}
                               <p
                                 className={`mt-1 ${isMe ? 'text-right text-slate-400' : 'text-slate-400'}`}
                                 style={{ fontSize: '0.65rem' }}

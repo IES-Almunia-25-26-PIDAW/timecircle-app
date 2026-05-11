@@ -1,21 +1,42 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import {
   Clock, TrendingUp, ArrowLeftRight, Star, Plus,
   ChevronRight, CheckCircle, AlertCircle, Hourglass
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { CATEGORIES } from '../data/mockData';
+import { CATEGORIES, SLUG_TO_API_CAT } from '../data/mockData';
+import NearbyServicesMap from '../components/NearbyServicesMap';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
-const activityData = [
-  { mes: 'Ene', horas: 2 },
-  { mes: 'Feb', horas: 4 },
-  { mes: 'Mar', horas: 3 },
-  { mes: 'Abr', horas: 6 },
-  { mes: 'May', horas: 5 },
-  { mes: 'Jun', horas: 8 },
-];
+const getLastSixMonthsActivity = (trades: ReturnType<typeof useApp>['trades']) => {
+  const now = new Date();
+  const months = Array.from({ length: 6 }, (_, index) => {
+    const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1);
+    return {
+      key: `${date.getFullYear()}-${date.getMonth()}`,
+      mes: date.toLocaleDateString('es-ES', { month: 'short' }).replace('.', ''),
+      horas: 0,
+    };
+  });
+
+  const monthByKey = new Map(months.map(month => [month.key, month]));
+
+  trades
+    .filter(trade => trade.status === 'completed')
+    .forEach(trade => {
+      const activityDate = new Date(trade.completedAt || trade.scheduledDate);
+      if (Number.isNaN(activityDate.getTime())) return;
+
+      const key = `${activityDate.getFullYear()}-${activityDate.getMonth()}`;
+      const month = monthByKey.get(key);
+      if (month) {
+        month.horas += trade.creditsAmount;
+      }
+    });
+
+  return months;
+};
 
 const TradeStatusBadge: React.FC<{ status: string }> = ({ status }) => {
   const map: Record<string, { label: string; className: string }> = {
@@ -30,15 +51,49 @@ const TradeStatusBadge: React.FC<{ status: string }> = ({ status }) => {
 };
 
 export const Dashboard: React.FC = () => {
-  const { currentUser, getUserTrades, services, getServiceById, getUserById, reviews } = useApp();
+  const { currentUser, getUserTrades, services, getServiceById, getUserById, reviews, viewerLocation } = useApp();
   if (!currentUser) return null;
 
+  const [typeFilter, setTypeFilter] = useState<'all' | 'offer' | 'request'>('all');
+
   const myTrades = getUserTrades(currentUser.id);
+  const activityData = useMemo(() => getLastSixMonthsActivity(myTrades), [myTrades]);
   const activeTrades = myTrades.filter(t => ['pending', 'accepted', 'in_progress'].includes(t.status));
   const recentTrades = myTrades.slice(0, 4);
   const myServices = services.filter(s => s.userId === currentUser.id);
   const recentServices = services.filter(s => s.userId !== currentUser.id && s.status === 'active').slice(0, 4);
   const myReviews = reviews.filter(r => r.revieweeId === currentUser.id).slice(0, 3);
+
+  const filteredServices = useMemo(() => (
+    services.filter(s => (typeFilter === 'all' ? true : s.type === typeFilter) && s.status === 'active' && s.userId !== currentUser.id)
+  ), [services, typeFilter, currentUser]);
+
+  const mapCenter = useMemo(() => {
+    if (viewerLocation) return viewerLocation;
+    if (typeof currentUser.latitude === 'number' && typeof currentUser.longitude === 'number') {
+      return { lat: currentUser.latitude, lon: currentUser.longitude };
+    }
+    return { lat: 40.4168, lon: -3.7038 };
+  }, [viewerLocation, currentUser.latitude, currentUser.longitude]);
+
+  const servicesForMap = useMemo(() => filteredServices.map(s => {
+    const user = (s as any).user ?? getUserById(s.userId);
+    return {
+      id: s.id,
+      title: s.title,
+      credits: s.credits,
+      category: { name: SLUG_TO_API_CAT[s.category] || s.category },
+      distance_km: s.distanceKm,
+      user: {
+        latitude: user?.latitude,
+        longitude: user?.longitude,
+        name: user?.name,
+        username: user?.name,
+        avatar: user?.avatar,
+        rating: user?.rating,
+      },
+    };
+  }), [filteredServices, getUserById]);
 
   const badgeConfig = {
     gold: { label: 'Vecino de Oro', className: 'bg-amber-100 text-amber-700 border-amber-300', icon: '🥇' },
@@ -66,6 +121,25 @@ export const Dashboard: React.FC = () => {
           <Plus className="w-4 h-4" />
           Publicar servicio
         </Link>
+      </div>
+
+      {/* Nearby services map */}
+      <div>
+        <div className="bg-white border border-slate-100 rounded-2xl p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-slate-900" style={{ fontSize: '1rem', fontWeight: 600 }}>Servicios cercanos</h2>
+            <div className="flex items-center gap-2">
+              <label className="text-slate-500 text-sm mr-2">Tipo:</label>
+              <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as any)} className="border rounded px-2 py-1 text-sm">
+                <option value="all">Todos</option>
+                <option value="offer">Ofertas</option>
+                <option value="request">Solicitudes</option>
+              </select>
+            </div>
+          </div>
+          <NearbyServicesMap services={servicesForMap} center={mapCenter} height={320} />
+          {filteredServices.length === 0 && <div className="text-center text-slate-500 py-3">No hay servicios filtrados.</div>}
+        </div>
       </div>
 
       {/* Stats cards */}
