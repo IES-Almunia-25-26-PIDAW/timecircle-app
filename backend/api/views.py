@@ -638,14 +638,13 @@ class ServiceViewSet(viewsets.ModelViewSet):
             list(qs), many=True, context={"request": request}
         ).data
 
-        max_dist = request.query_params.get("max_distance_km")
         my_city_only = request.query_params.get("my_city_only") == "true"
         viewer_city = self._get_viewer_city(request)
 
         filtered = [
             item for item in serialized
             if self._passes_city_filter(item, viewer_city, my_city_only)
-            and self._passes_distance_filter(item, max_dist)
+            and self._passes_distance_filter(item, max_km)
         ]
 
         return Response(filtered)
