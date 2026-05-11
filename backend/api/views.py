@@ -607,15 +607,10 @@ class ServiceViewSet(viewsets.ModelViewSet):
         return bool(owner_city) and owner_city.lower() == viewer_city.lower()
 
 
-    def _passes_distance_filter(self, item: dict, max_dist: str | None) -> bool:
+    def _passes_distance_filter(self, item: dict, max_km: float | None) -> bool:
         """Return False when the item exceeds the requested max distance."""
-        if not max_dist:
+        if max_km is None:
             return True
-
-        try:
-            max_km = float(max_dist)          # validate max_dist first
-        except (TypeError, ValueError):
-            return True                        # invalid filter → ignore it entirely
 
         dist = item.get("distance_km")
         if dist is None:
@@ -632,6 +627,11 @@ class ServiceViewSet(viewsets.ModelViewSet):
 
 
     def list(self, request, *args, **kwargs):
+        max_dist = request.query_params.get("max_dist")
+        try:
+            max_km = float(max_dist) if max_dist not in (None, "") else None
+        except (TypeError, ValueError):
+            max_km = None
         """Override to allow distance-based filtering when viewer coordinates are supplied."""
         qs = self.filter_queryset(self.get_queryset())
         serialized = ServiceSerializer(
