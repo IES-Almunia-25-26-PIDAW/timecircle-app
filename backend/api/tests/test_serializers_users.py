@@ -16,6 +16,7 @@ import decimal
 
 from api.models import User, Skill, UserSkill
 from api.serializers import (
+    CategorySerializer,
     UserRegistrationSerializer,
     UserSerializer,
     UserUpdateSerializer,
@@ -25,6 +26,22 @@ from api.serializers import (
     AdminUserUpdateSerializer,
 )
 from .factories import make_user, make_skill, make_completed_trade, make_review
+
+
+class CategorySerializerTests(TestCase):
+
+    def test_serializes_catalog_fields(self):
+        from .factories import make_category
+
+        category = make_category(
+            name="Idiomas",
+            description="Clases y conversación",
+            icon="languages",
+        )
+        data = CategorySerializer(category).data
+        self.assertEqual(data["name"], "Idiomas")
+        self.assertEqual(data["description"], "Clases y conversación")
+        self.assertEqual(data["icon"], "languages")
 
 
 def _mock_request(user=None, method="GET"):
@@ -162,6 +179,82 @@ class UserSerializerTests(TestCase):
         self.assertNotIn("credits", s.validated_data)
         self.assertNotIn("badge", s.validated_data)
 
+    def test_public_representation_hides_exact_location(self):
+        self.user.street_address = "Calle Mayor 1"
+        self.user.postal_code = "28013"
+        self.user.latitude = 40.4168
+        self.user.longitude = -3.7038
+        self.user.save()
+
+        data = UserSerializer(self.user).data
+
+        self.assertNotIn("street_address", data)
+        self.assertNotIn("postal_code", data)
+        self.assertNotIn("latitude", data)
+        self.assertNotIn("longitude", data)
+
+    def test_owner_can_see_exact_location(self):
+        self.user.street_address = "Calle Mayor 1"
+        self.user.postal_code = "28013"
+        self.user.latitude = 40.4168
+        self.user.longitude = -3.7038
+        self.user.save()
+
+        data = UserSerializer(
+            self.user,
+            context={"request": _mock_request(self.user)},
+        ).data
+
+        self.assertEqual(data["street_address"], "Calle Mayor 1")
+        self.assertEqual(data["postal_code"], "28013")
+        self.assertEqual(float(data["latitude"]), 40.4168)
+        self.assertEqual(float(data["longitude"]), -3.7038)
+
+    def test_staff_can_see_exact_location(self):
+        admin = make_user(username="staff", email="staff@x.com", is_staff=True)
+        self.user.street_address = "Calle Mayor 1"
+        self.user.postal_code = "28013"
+        self.user.save()
+
+        data = UserSerializer(
+            self.user,
+            context={"request": _mock_request(admin)},
+        ).data
+
+        self.assertEqual(data["street_address"], "Calle Mayor 1")
+        self.assertEqual(data["postal_code"], "28013")
+
+    def test_share_exact_location_opt_in_shows_exact_location(self):
+        self.user.street_address = "Calle Mayor 1"
+        self.user.postal_code = "28013"
+        self.user.share_exact_location = True
+        self.user.save()
+
+        data = UserSerializer(self.user).data
+
+        self.assertEqual(data["street_address"], "Calle Mayor 1")
+        self.assertEqual(data["postal_code"], "28013")
+
+    def test_request_user_comparison_errors_hide_exact_location(self):
+        class BrokenUser:
+            is_authenticated = True
+            is_staff = False
+
+            def __eq__(self, other):
+                raise RuntimeError("comparison failed")
+
+        self.user.street_address = "Calle Mayor 1"
+        self.user.postal_code = "28013"
+        self.user.save()
+
+        data = UserSerializer(
+            self.user,
+            context={"request": _mock_request(BrokenUser())},
+        ).data
+
+        self.assertNotIn("street_address", data)
+        self.assertNotIn("postal_code", data)
+
 
 # ══════════════════════════════════════════════
 #  USER UPDATE SERIALIZER
@@ -226,6 +319,41 @@ class UserUpdateSerializerTests(TestCase):
         )
         self.assertTrue(s.is_valid(), s.errors)
         self.assertEqual(s.validated_data["first_name"], "Lucía")
+
+    def test_latitude_accepts_none_and_rejects_out_of_range(self):
+        self.assertIsNone(UserUpdateSerializer().validate_latitude(None))
+
+        s = UserUpdateSerializer(
+            self.user,
+            data={"latitude": 91},
+            partial=True,
+        )
+        self.assertFalse(s.is_valid())
+        self.assertIn("latitude", s.errors)
+
+    def test_longitude_accepts_none_and_rejects_out_of_range(self):
+        self.assertIsNone(UserUpdateSerializer().validate_longitude(None))
+
+        s = UserUpdateSerializer(
+            self.user,
+            data={"longitude": -181},
+            partial=True,
+        )
+        self.assertFalse(s.is_valid())
+        self.assertIn("longitude", s.errors)
+
+    def test_postal_code_accepts_none_strips_and_rejects_too_long(self):
+        serializer = UserUpdateSerializer()
+        self.assertIsNone(serializer.validate_postal_code(None))
+        self.assertEqual(serializer.validate_postal_code("  28013  "), "28013")
+
+        s = UserUpdateSerializer(
+            self.user,
+            data={"postal_code": "1" * 21},
+            partial=True,
+        )
+        self.assertFalse(s.is_valid())
+        self.assertIn("postal_code", s.errors)
 
 
 # ══════════════════════════════════════════════

@@ -20,7 +20,7 @@ from datetime import timedelta
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from django.core import signing
-import random
+import secrets
 from django.conf import settings
 from django.core.mail import send_mail
 
@@ -255,7 +255,7 @@ class RequestPasswordResetView(generics.GenericAPIView):
         except User.DoesNotExist:
             return Response({'detail': 'No existe una cuenta con ese correo.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        code = f"{random.randint(0, 999999):06d}"
+        code = f"{secrets.randbelow(1000000):06d}"
         # Import here to avoid import-time cycles when Django loads URLconf
         from .models import PasswordResetCode
         PasswordResetCode.objects.create(user=user, code=code)
@@ -599,41 +599,54 @@ class ServiceViewSet(viewsets.ModelViewSet):
 
     # Creation handled by ModelViewSet using `ServiceSerializer` and `perform_create`.
 
+    def _passes_city_filter(self, item: dict, viewer_city: str | None, my_city_only: bool) -> bool:
+        """Return False when city-only mode is active and the owner's city doesn't match."""
+        if not (my_city_only and viewer_city):
+            return True
+        owner_city = item.get("user", {}).get("location") or item.get("user", {}).get("city")
+        return bool(owner_city) and owner_city.lower() == viewer_city.lower()
+
+
+    def _passes_distance_filter(self, item: dict, max_dist: str | None) -> bool:
+        """Return False when the item exceeds the requested max distance."""
+        if not max_dist:
+            return True
+
+        try:
+            max_km = float(max_dist)          # validate max_dist first
+        except (TypeError, ValueError):
+            return True                        # invalid filter → ignore it entirely
+
+        dist = item.get("distance_km")
+        if dist is None:
+            return False                       # distance unknown → exclude item
+
+        return float(dist) <= max_km
+
+
+    def _get_viewer_city(self, request) -> str | None:
+        explicit = request.query_params.get("viewer_city")
+        if explicit:
+            return explicit
+        return request.user.city if request.user.is_authenticated else None
+
+
     def list(self, request, *args, **kwargs):
-        # Override to allow distance-based filtering when viewer coordinates are supplied.
+        """Override to allow distance-based filtering when viewer coordinates are supplied."""
         qs = self.filter_queryset(self.get_queryset())
-        services = list(qs)
+        serialized = ServiceSerializer(
+            list(qs), many=True, context={"request": request}
+        ).data
 
-        # Serialize with request context so SerializerMethodFields can compute distances
-        serialized = ServiceSerializer(services, many=True, context={'request': request}).data
+        max_dist = request.query_params.get("max_distance_km")
+        my_city_only = request.query_params.get("my_city_only") == "true"
+        viewer_city = self._get_viewer_city(request)
 
-        # Apply server-side filters if requested
-        max_dist = request.query_params.get('max_distance_km')
-        my_city_only = request.query_params.get('my_city_only') == 'true'
-        viewer_city = request.query_params.get('viewer_city') or (request.user.city if request.user.is_authenticated else None)
-
-        filtered = []
-        for item in serialized:
-            # item may have distance_km or not
-            dist = item.get('distance_km')
-            owner_city = item.get('user', {}).get('location') or item.get('user', {}).get('city')
-
-            if my_city_only and viewer_city:
-                if not owner_city or owner_city.lower() != viewer_city.lower():
-                    continue
-
-            if max_dist is not None and max_dist != '':
-                try:
-                    md = float(max_dist)
-                    if dist is None:
-                        # cannot determine distance => skip
-                        continue
-                    if float(dist) > md:
-                        continue
-                except Exception:
-                    pass
-
-            filtered.append(item)
+        filtered = [
+            item for item in serialized
+            if self._passes_city_filter(item, viewer_city, my_city_only)
+            and self._passes_distance_filter(item, max_dist)
+        ]
 
         return Response(filtered)
 
@@ -1088,10 +1101,10 @@ class AdminGeoStatsView(generics.GenericAPIView):
         users = User.objects.filter(is_active=True, latitude__isnull=False, longitude__isnull=False)
         services = Service.objects.filter(user__latitude__isnull=False, user__longitude__isnull=False)
 
-        def group_by_cell(qs, attr_user=False):
+        def group_by_cell(qs):
             cells = {}
             for obj in qs:
-                u = obj if not attr_user else obj
+                u = obj
                 if hasattr(obj, 'user'):
                     u = obj.user
                 try:
@@ -1103,8 +1116,8 @@ class AdminGeoStatsView(generics.GenericAPIView):
                 cells.setdefault(key, {'lat': lat, 'lon': lon, 'count': 0})['count'] += 1
             return list(cells.values())
 
-        user_cells = group_by_cell(users, attr_user=True)
-        service_cells = group_by_cell(services, attr_user=False)
+        user_cells = group_by_cell(users)
+        service_cells = group_by_cell(services)
 
         return Response({'user_cells': user_cells, 'service_cells': service_cells})
 

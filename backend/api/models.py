@@ -5,11 +5,6 @@ from django.utils.translation import gettext_lazy as _
 from django.contrib.auth.models import AbstractUser
 import decimal
 
-
-# ─────────────────────────────────────────────
-#  USER
-# ─────────────────────────────────────────────
-
 class User(AbstractUser):
     """
     Usuario de TimeCircle.
@@ -70,7 +65,7 @@ class User(AbstractUser):
     rating           = models.DecimalField(max_digits=3, decimal_places=2, default=0.00)
     total_reviews    = models.PositiveIntegerField(default=0)
     completed_trades = models.PositiveIntegerField(default=0)
-    badge            = models.CharField(max_length=10, choices=Badge.choices, blank=True, null=True)
+    badge            = models.CharField(max_length=10, choices=Badge.choices, blank=True)
 
     class Meta:
         db_table = 'user_account'
@@ -109,11 +104,6 @@ class User(AbstractUser):
         self.credits += bonus
         self.save(update_fields=['credits'])
 
-
-# ─────────────────────────────────────────────
-#  CATEGORÍAS Y ETIQUETAS
-# ─────────────────────────────────────────────
-
 class Category(models.Model):
     name        = models.CharField(max_length=50, unique=True)
     description = models.TextField(max_length=200, blank=True)
@@ -140,11 +130,6 @@ class Tag(models.Model):
     def __str__(self):
         return self.name
 
-
-# ─────────────────────────────────────────────
-#  HABILIDADES
-# ─────────────────────────────────────────────
-
 class Skill(models.Model):
     name        = models.CharField(max_length=30, unique=True)
     description = models.TextField(max_length=200, blank=True)
@@ -170,11 +155,6 @@ class UserSkill(models.Model):
 
     def __str__(self):
         return f'{self.user.username} → {self.skill.name}'
-
-
-# ─────────────────────────────────────────────
-#  SERVICIOS
-# ─────────────────────────────────────────────
 
 class Service(models.Model):
     class Type(models.TextChoices):
@@ -243,11 +223,6 @@ class Trade(models.Model):
     def __str__(self):
         return f'Trade #{self.pk} · {self.get_status_display()}'
 
-
-# ─────────────────────────────────────────────
-#  TRANSACCIONES DE CRÉDITOS
-# ─────────────────────────────────────────────
-
 class Transaction(models.Model):
     class Type(models.TextChoices):
         DEBIT   = 'debit',   _('Débito')
@@ -275,11 +250,6 @@ class Transaction(models.Model):
     def __str__(self):
         trade_ref = f'Trade #{self.trade_id}' if self.trade_id else 'Bono'
         return f'{self.user.username} · {self.amount:+} créditos · {trade_ref}'
-
-
-# ─────────────────────────────────────────────
-#  MENSAJERÍA
-# ─────────────────────────────────────────────
 
 class Conversation(models.Model):
     participants = models.ManyToManyField(User, related_name='conversations')
@@ -323,12 +293,7 @@ class Message(models.Model):
 
     def __str__(self):
         return f'{self.sender.username}: {self.content[:40]}'
-
-
-# ─────────────────────────────────────────────
-#  RESEÑAS / VALORACIONES
-# ─────────────────────────────────────────────
-
+    
 class Review(models.Model):
     trade      = models.ForeignKey(Trade, on_delete=models.CASCADE, related_name='reviews')
     reviewer   = models.ForeignKey(User,  on_delete=models.CASCADE, related_name='given_reviews')
@@ -352,11 +317,6 @@ class Review(models.Model):
 
     def __str__(self):
         return f'{self.reviewer.username} → {self.reviewee.username} · {self.rating}★'
-
-
-# ─────────────────────────────────────────────
-#  MENSAJES DE CONTACTO
-# ─────────────────────────────────────────────
 
 class ContactMessage(models.Model):
     """
@@ -386,11 +346,6 @@ class ContactMessage(models.Model):
 
     def __str__(self):
         return f'[{self.get_reason_display()}] {self.name} <{self.email}>'
-
-# ─────────────────────────────────────────────
-#  PRESENCIA DE USUARIO (ONLINE / AUSENTE)
-# ─────────────────────────────────────────────
- 
 
 class PasswordResetCode(models.Model):
     """
