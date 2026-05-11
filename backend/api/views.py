@@ -627,7 +627,7 @@ class ServiceViewSet(viewsets.ModelViewSet):
 
 
     def list(self, request, *args, **kwargs):
-        max_dist = request.query_params.get("max_dist")
+        max_dist = request.query_params.get("max_distance_km")
         try:
             max_km = float(max_dist) if max_dist not in (None, "") else None
         except (TypeError, ValueError):
