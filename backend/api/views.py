@@ -302,9 +302,9 @@ class RequestPasswordResetView(generics.GenericAPIView):
         """
         from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', None) or settings.EMAIL_HOST_USER or 'no-reply@timecircle.app'
         try:
-                send_mail(subject, message, from_email, [user.email], fail_silently=False, html_message=html_message)
+            send_mail(subject, message, from_email, [user.email], fail_silently=False, html_message=html_message)
         except Exception:
-                return Response({'detail': 'Error al enviar el correo.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'detail': 'Error al enviar el correo.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response({'detail': 'Código enviado al correo.'})
 
@@ -603,19 +603,14 @@ class ServiceViewSet(viewsets.ModelViewSet):
         """Return False when city-only mode is active and the owner's city doesn't match."""
         if not (my_city_only and viewer_city):
             return True
-        owner_city = item.get("user", {}).get("location") or item.get("user", {}).get("city")
+        owner_city = item.get("user", {}).get("city")
         return bool(owner_city) and owner_city.lower() == viewer_city.lower()
 
 
-    def _passes_distance_filter(self, item: dict, max_dist: str | None) -> bool:
+    def _passes_distance_filter(self, item: dict, max_km: float | None) -> bool:
         """Return False when the item exceeds the requested max distance."""
-        if not max_dist:
+        if max_km is None:
             return True
-
-        try:
-            max_km = float(max_dist)          # validate max_dist first
-        except (TypeError, ValueError):
-            return True                        # invalid filter → ignore it entirely
 
         dist = item.get("distance_km")
         if dist is None:
@@ -632,20 +627,24 @@ class ServiceViewSet(viewsets.ModelViewSet):
 
 
     def list(self, request, *args, **kwargs):
+        max_dist = request.query_params.get("max_dist")
+        try:
+            max_km = float(max_dist) if max_dist not in (None, "") else None
+        except (TypeError, ValueError):
+            max_km = None
         """Override to allow distance-based filtering when viewer coordinates are supplied."""
         qs = self.filter_queryset(self.get_queryset())
         serialized = ServiceSerializer(
             list(qs), many=True, context={"request": request}
         ).data
 
-        max_dist = request.query_params.get("max_distance_km")
         my_city_only = request.query_params.get("my_city_only") == "true"
         viewer_city = self._get_viewer_city(request)
 
         filtered = [
             item for item in serialized
             if self._passes_city_filter(item, viewer_city, my_city_only)
-            and self._passes_distance_filter(item, max_dist)
+            and self._passes_distance_filter(item, max_km)
         ]
 
         return Response(filtered)
