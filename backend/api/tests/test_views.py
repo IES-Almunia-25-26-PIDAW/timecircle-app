@@ -12,7 +12,7 @@ from api.tests.factories import (
     make_user, make_admin, make_conversation, make_message,
     make_category, make_skill, make_service, make_trade, make_completed_trade, make_review
 )
-from api.models import PasswordResetCode, UserPresence, ContactMessage, Message, Conversation, Transaction, Service, Review, Trade
+from api.models import PasswordResetCode, UserPresence, ContactMessage, Message, Conversation, Transaction, Review, Trade
 from api.serializers import TradeCreateSerializer, TradeNegotiationSerializer, TradeSerializer, TradeStatusUpdateSerializer
 from api.views import TradeViewSet
 from rest_framework_simplejwt.tokens import RefreshToken
