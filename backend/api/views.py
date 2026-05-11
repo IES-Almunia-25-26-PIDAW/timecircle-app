@@ -603,7 +603,7 @@ class ServiceViewSet(viewsets.ModelViewSet):
         """Return False when city-only mode is active and the owner's city doesn't match."""
         if not (my_city_only and viewer_city):
             return True
-        owner_city = item.get("user", {}).get("location") or item.get("user", {}).get("city")
+        owner_city = item.get("user", {}).get("city")
         return bool(owner_city) and owner_city.lower() == viewer_city.lower()
 
 
