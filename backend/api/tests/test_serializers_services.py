@@ -23,6 +23,12 @@ def _request_with_user(user):
     return req
 
 
+def _request_with_viewer_coords(lat, lon):
+    req = RequestFactory().get("/")
+    req.query_params = {"viewer_lat": lat, "viewer_lon": lon}
+    return req
+
+
 # ══════════════════════════════════════════════
 #  CREACIÓN
 # ══════════════════════════════════════════════
@@ -76,11 +82,6 @@ class ServiceCreateTests(TestCase):
         self.assertTrue(s.is_valid(), s.errors)
         service = s.save(user=self.user)
         self.assertEqual(service.type, Service.Type.REQUEST)
-
-
-# ══════════════════════════════════════════════
-#  VALIDACIONES
-# ══════════════════════════════════════════════
 
 class ServiceValidationTests(TestCase):
 
@@ -257,6 +258,68 @@ class ServiceReadRepresentationTests(TestCase):
         data = ServiceSerializer(service).data
         self.assertIsInstance(data["tags"], list)
         self.assertEqual(data["tags"][0]["name"], "test-tag")
+
+    def test_distance_is_none_without_viewer_coords(self):
+        user = make_user(latitude=40.4168, longitude=-3.7038)
+        service = make_service(user)
+
+        data = ServiceSerializer(service).data
+
+        self.assertIsNone(data["distance_km"])
+        self.assertIsNone(data["proximity"])
+
+    def test_distance_is_none_when_request_has_no_query_params(self):
+        user = make_user(latitude=40.4168, longitude=-3.7038)
+        service = make_service(user)
+        req = RequestFactory().get("/")
+
+        data = ServiceSerializer(service, context={"request": req}).data
+
+        self.assertIsNone(data["distance_km"])
+        self.assertIsNone(data["proximity"])
+
+    def test_distance_is_none_with_invalid_viewer_coords(self):
+        user = make_user(latitude=40.4168, longitude=-3.7038)
+        service = make_service(user)
+        req = _request_with_viewer_coords("not-a-number", "-3.70")
+
+        data = ServiceSerializer(service, context={"request": req}).data
+
+        self.assertIsNone(data["distance_km"])
+        self.assertIsNone(data["proximity"])
+
+    def test_distance_is_none_when_service_user_has_no_coords(self):
+        user = make_user(latitude=None, longitude=None)
+        service = make_service(user)
+        req = _request_with_viewer_coords("40.4168", "-3.7038")
+
+        data = ServiceSerializer(service, context={"request": req}).data
+
+        self.assertIsNone(data["distance_km"])
+        self.assertIsNone(data["proximity"])
+
+    def test_distance_and_very_close_proximity_are_computed(self):
+        user = make_user(latitude=40.4168, longitude=-3.7038)
+        service = make_service(user)
+        req = _request_with_viewer_coords("40.4168", "-3.7038")
+
+        data = ServiceSerializer(service, context={"request": req}).data
+
+        self.assertEqual(data["distance_km"], 0.0)
+        self.assertEqual(data["proximity"], "very_close")
+
+    def test_proximity_buckets(self):
+        user = make_user(latitude=0, longitude=0)
+        service = make_service(user)
+        serializer = ServiceSerializer()
+
+        for distance, expected in [
+            (2.0, "close"),
+            (10.0, "medium"),
+            (20.0, "far"),
+        ]:
+            serializer.get_distance_km = lambda obj, d=distance: d
+            self.assertEqual(serializer.get_proximity(service), expected)
 
     def test_write_only_fields_excluded_from_output(self):
         user    = make_user()

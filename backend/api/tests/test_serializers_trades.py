@@ -15,14 +15,16 @@ from django.utils import timezone
 from datetime import timedelta
 import decimal
 
-from api.models import Trade, Transaction, Service, User
+from api.models import Conversation, Message, Trade, Transaction, Service, User
 from api.serializers import (
     TradeCreateSerializer,
+    TradeNegotiationSerializer,
     TradeStatusUpdateSerializer,
     TradeSerializer,
+    get_or_create_trade_conversation,
 )
 from .factories import (
-    make_user, make_service, make_trade, make_completed_trade,
+    make_user, make_service, make_trade, make_completed_trade, make_conversation,
 )
 
 
@@ -65,7 +67,7 @@ class TradeCreateSerializerTests(TestCase):
     def test_cannot_request_own_service(self):
         s = TradeCreateSerializer(
             data=self._data(),
-            context={"request": _request(self.offerer)},   # offerer = propietario
+            context={"request": _request(self.offerer)},
         )
         self.assertFalse(s.is_valid())
         self.assertTrue(any("propio" in str(e).lower() for e in s.errors.values()))
@@ -127,6 +129,146 @@ class TradeCreateSerializerTests(TestCase):
         )
         # No debe fallar por saldo insuficiente en servicios de tipo 'request'
         self.assertTrue(s.is_valid(), s.errors)
+
+    def test_credits_amount_must_be_at_least_one(self):
+        s = TradeCreateSerializer(
+            data=self._data(credits_amount=0),
+            context={"request": _request(self.requester)},
+        )
+        self.assertFalse(s.is_valid())
+        self.assertIn("credits_amount", s.errors)
+
+    def test_credits_amount_cannot_exceed_twenty(self):
+        service = make_service(self.offerer, credits=20)
+        s = TradeCreateSerializer(
+            data=self._data(service_id=service.id, credits_amount=21),
+            context={"request": _request(self.requester)},
+        )
+        self.assertFalse(s.is_valid())
+        self.assertIn("credits_amount", s.errors)
+
+
+# ══════════════════════════════════════════════
+#  TRADE NEGOTIATION
+# ══════════════════════════════════════════════
+
+class TradeNegotiationSerializerTests(TestCase):
+
+    def setUp(self):
+        self.offerer = make_user(username="off_neg", email="off_neg@x.com", credits=10)
+        self.requester = make_user(username="req_neg", email="req_neg@x.com", credits=10)
+        self.service = make_service(self.offerer, credits=3)
+        self.trade = make_trade(
+            self.offerer,
+            self.requester,
+            service=self.service,
+            status=Trade.Status.PENDING,
+            credits_amount=3,
+        )
+        self.future = timezone.now() + timedelta(days=4)
+
+    def _serializer(self, data, user=None, trade=None):
+        return TradeNegotiationSerializer(
+            data=data,
+            context={
+                "trade": trade or self.trade,
+                "request": _request(user or self.offerer),
+            },
+        )
+
+    def test_past_scheduled_date_rejected(self):
+        s = self._serializer({"scheduled_date": timezone.now() - timedelta(hours=1)})
+        self.assertFalse(s.is_valid())
+        self.assertIn("scheduled_date", s.errors)
+
+    def test_only_pending_trades_can_be_negotiated(self):
+        self.trade.status = Trade.Status.ACCEPTED
+        self.trade.save()
+
+        s = self._serializer({"credits_amount": 4})
+
+        self.assertFalse(s.is_valid())
+        self.assertIn("non_field_errors", s.errors)
+
+    def test_non_participant_cannot_negotiate(self):
+        outsider = make_user(username="outsider", email="outsider@x.com")
+
+        s = self._serializer({"credits_amount": 4}, user=outsider)
+
+        self.assertFalse(s.is_valid())
+        self.assertIn("non_field_errors", s.errors)
+
+    def test_must_change_negotiable_field(self):
+        s = self._serializer({"message": "Solo mensaje"})
+
+        self.assertFalse(s.is_valid())
+        self.assertIn("non_field_errors", s.errors)
+
+    def test_offer_service_requires_requester_credit_balance(self):
+        self.requester.credits = 2
+        self.requester.save()
+
+        s = self._serializer({"credits_amount": 5})
+
+        self.assertFalse(s.is_valid())
+        self.assertIn("non_field_errors", s.errors)
+
+    def test_request_type_service_skips_requester_credit_balance_check(self):
+        request_service = make_service(
+            self.offerer,
+            service_type=Service.Type.REQUEST,
+            credits=3,
+        )
+        trade = make_trade(
+            self.offerer,
+            self.requester,
+            service=request_service,
+            status=Trade.Status.PENDING,
+            credits_amount=3,
+        )
+        self.requester.credits = 0
+        self.requester.save()
+
+        s = self._serializer({"credits_amount": 5}, trade=trade)
+
+        self.assertTrue(s.is_valid(), s.errors)
+
+    def test_save_updates_trade_and_creates_trade_proposal_message(self):
+        s = self._serializer(
+            {
+                "scheduled_date": self.future,
+                "credits_amount": 4,
+                "notes": "Nueva nota",
+                "message": "Te propongo otro horario",
+            },
+            user=self.offerer,
+        )
+        self.assertTrue(s.is_valid(), s.errors)
+
+        updated = s.save()
+
+        updated.refresh_from_db()
+        self.assertEqual(updated.credits_amount, 4)
+        self.assertEqual(updated.notes, "Nueva nota")
+        self.assertEqual(updated.last_proposed_by, self.offerer)
+        msg = Message.objects.get(trade=updated, message_type=Message.Type.TRADE_PROPOSAL)
+        self.assertEqual(msg.sender, self.offerer)
+        self.assertEqual(msg.payload["action"], "negotiated")
+        self.assertEqual(msg.payload["message"], "Te propongo otro horario")
+
+
+class TradeConversationHelperTests(TestCase):
+
+    def test_reuses_existing_conversation_with_same_participants(self):
+        offerer = make_user(username="off_conv", email="off_conv@x.com")
+        requester = make_user(username="req_conv", email="req_conv@x.com")
+        trade = make_trade(offerer, requester)
+        existing = make_conversation(requester, offerer)
+
+        conversation = get_or_create_trade_conversation(trade)
+
+        self.assertEqual(conversation, existing)
+        self.assertEqual(Conversation.objects.count(), 1)
 
 
 # ══════════════════════════════════════════════
@@ -193,6 +335,19 @@ class TradeStatusUpdateTransitionTests(TestCase):
         trade = make_trade(self.offerer, self.requester, status=Trade.Status.PENDING)
         s = self._update(trade, "in_progress")
         self.assertFalse(s.is_valid())
+
+    def test_user_cannot_accept_own_proposal(self):
+        trade = make_trade(self.offerer, self.requester, status=Trade.Status.PENDING)
+        trade.last_proposed_by = self.offerer
+        trade.save()
+        s = TradeStatusUpdateSerializer(
+            trade,
+            data={"status": Trade.Status.ACCEPTED},
+            context={"request": _request(self.offerer)},
+        )
+
+        self.assertFalse(s.is_valid())
+        self.assertIn("status", s.errors)
 
 
 # ══════════════════════════════════════════════

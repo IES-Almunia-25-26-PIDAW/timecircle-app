@@ -1,15 +1,20 @@
 from django.test import TestCase
 from rest_framework.test import APIClient
+from rest_framework.test import APIRequestFactory
 from unittest.mock import patch
 from django.core import signing
+from django.utils import timezone
 from rest_framework import status
+from datetime import timedelta
 import decimal
 
 from api.tests.factories import (
     make_user, make_admin, make_conversation, make_message,
     make_category, make_skill, make_service, make_trade, make_completed_trade, make_review
 )
-from api.models import PasswordResetCode, UserPresence, ContactMessage, Message, Conversation, Transaction, Service, Review
+from api.models import PasswordResetCode, UserPresence, ContactMessage, Message, Conversation, Transaction, Review, Trade
+from api.serializers import TradeCreateSerializer, TradeNegotiationSerializer, TradeSerializer, TradeStatusUpdateSerializer
+from api.views import TradeViewSet
 from rest_framework_simplejwt.tokens import RefreshToken
 
 
@@ -247,6 +252,46 @@ class UserViewsTests(TestCase):
         self.assertIsNotNone(tx)
 
 
+class MeViewPatchTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    def test_patch_updates_profile_and_reverse_geocodes_coordinates(self):
+        user = make_user(username='geo_user', email='geo@example.com')
+        self.client.force_authenticate(user=user)
+
+        with patch('api.views.reverse_geocode', return_value=('Madrid', 'España', 'Calle Mayor 1', '28013')) as mock_geo:
+            resp = self.client.patch(
+                '/api/auth/me/',
+                {'latitude': 40.4168, 'longitude': -3.7038, 'first_name': 'Geo'},
+                format='json',
+            )
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        mock_geo.assert_called_once_with(40.4168, -3.7038)
+        user.refresh_from_db()
+        self.assertEqual(user.first_name, 'Geo')
+        self.assertEqual(user.city, 'Madrid')
+        self.assertEqual(user.country, 'España')
+        self.assertEqual(user.street_address, 'Calle Mayor 1')
+        self.assertEqual(user.postal_code, '28013')
+
+    def test_patch_ignores_reverse_geocode_failures(self):
+        user = make_user(username='geo_fail', email='geo_fail@example.com')
+        self.client.force_authenticate(user=user)
+
+        with patch('api.views.reverse_geocode', side_effect=RuntimeError('geocoder down')):
+            resp = self.client.patch(
+                '/api/auth/me/',
+                {'latitude': 40.4168, 'longitude': -3.7038, 'last_name': 'Updated'},
+                format='json',
+            )
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        user.refresh_from_db()
+        self.assertEqual(user.last_name, 'Updated')
+
+
 class SkillAndServicePermissionsTests(TestCase):
     def setUp(self):
         self.client = APIClient()
@@ -291,6 +336,65 @@ class SkillAndServicePermissionsTests(TestCase):
         self.assertEqual(upd.status_code, status.HTTP_403_FORBIDDEN)
 
 
+class ServiceListFilterTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.viewer = make_user(
+            username='viewer_filter',
+            email='viewer_filter@example.com',
+            city='Madrid',
+            location='Madrid',
+        )
+        self.category = make_category(name='FilterCat')
+        self.client.force_authenticate(user=self.viewer)
+
+    def test_list_filters_by_my_city_only_using_viewer_city(self):
+        madrid_owner = make_user(username='madrid_owner', email='madrid_owner@example.com', location='Madrid', city='Madrid')
+        valencia_owner = make_user(username='valencia_owner', email='valencia_owner@example.com', location='Valencia', city='Valencia')
+        madrid = make_service(madrid_owner, title='Servicio Madrid', category=self.category)
+        make_service(valencia_owner, title='Servicio Valencia', category=self.category)
+
+        resp = self.client.get('/api/services/?my_city_only=true')
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        ids = [item['id'] for item in resp.data]
+        self.assertIn(madrid.id, ids)
+        self.assertEqual(len(ids), 1)
+
+    def test_list_filters_by_max_distance_and_skips_unknown_distance(self):
+        nearby_owner = make_user(
+            username='nearby_owner',
+            email='nearby_owner@example.com',
+            latitude=40.4168,
+            longitude=-3.7038,
+        )
+        far_owner = make_user(
+            username='far_owner',
+            email='far_owner@example.com',
+            latitude=41.3874,
+            longitude=2.1686,
+        )
+        unknown_owner = make_user(username='unknown_owner', email='unknown_owner@example.com')
+        nearby = make_service(nearby_owner, title='Servicio Cerca', category=self.category)
+        make_service(far_owner, title='Servicio Lejos', category=self.category)
+        make_service(unknown_owner, title='Servicio Sin Distancia', category=self.category)
+
+        resp = self.client.get('/api/services/?viewer_lat=40.4168&viewer_lon=-3.7038&max_distance_km=5')
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        ids = [item['id'] for item in resp.data]
+        self.assertEqual(ids, [nearby.id])
+
+    def test_list_ignores_invalid_max_distance(self):
+        owner = make_user(username='invalid_dist_owner', email='invalid_dist_owner@example.com')
+        service = make_service(owner, title='Servicio Distancia Invalida', category=self.category)
+
+        resp = self.client.get('/api/services/?max_distance_km=not-a-number')
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIn(service.id, [item['id'] for item in resp.data])
+
+
 class TradeFlowTests(TestCase):
     def setUp(self):
         self.client = APIClient()
@@ -323,6 +427,96 @@ class TradeFlowTests(TestCase):
         txs_req = Transaction.objects.filter(user=requester, transaction_type='debit')
         self.assertTrue(txs_offer.exists())
         self.assertTrue(txs_req.exists())
+
+    def test_trade_viewset_serializer_class_by_action(self):
+        view = TradeViewSet()
+
+        view.action = 'create'
+        self.assertIs(view.get_serializer_class(), TradeCreateSerializer)
+        view.action = 'update_status'
+        self.assertIs(view.get_serializer_class(), TradeStatusUpdateSerializer)
+        view.action = 'negotiate'
+        self.assertIs(view.get_serializer_class(), TradeNegotiationSerializer)
+        view.action = 'list'
+        self.assertIs(view.get_serializer_class(), TradeSerializer)
+
+    def test_trade_list_filters_by_status_and_role(self):
+        offerer = make_user(username='offer_filter', email='offer_filter@example.com')
+        requester = make_user(username='request_filter', email='request_filter@example.com')
+        other = make_user(username='other_filter', email='other_filter@example.com')
+        accepted = make_trade(offerer, requester, status=Trade.Status.ACCEPTED)
+        make_trade(offerer, other, status=Trade.Status.PENDING)
+
+        self.client.force_authenticate(user=requester)
+        resp = self.client.get('/api/trades/?status=accepted&role=requester')
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual([item['id'] for item in resp.data['results']], [accepted.id])
+
+    def test_trade_create_returns_trade_conversation_and_message(self):
+        offerer = make_user(username='offer_create', email='offer_create@example.com', credits=0)
+        requester = make_user(username='req_create', email='req_create@example.com', credits=10)
+        service = make_service(offerer, credits=3)
+
+        self.client.force_authenticate(user=requester)
+        resp = self.client.post(
+            '/api/trades/',
+            {
+                'service_id': service.id,
+                'scheduled_date': (timezone.now() + timedelta(days=2)).isoformat(),
+                'credits_amount': 3,
+                'notes': 'Me interesa esta propuesta',
+            },
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertIn('trade', resp.data)
+        self.assertIn('conversation', resp.data)
+        self.assertIn('message', resp.data)
+        trade = Trade.objects.get(id=resp.data['trade']['id'])
+        self.assertTrue(Conversation.objects.filter(participants=offerer).filter(participants=requester).exists())
+        message = Message.objects.get(id=resp.data['message']['id'])
+        self.assertEqual(message.trade, trade)
+        self.assertEqual(message.payload['action'], 'created')
+
+    def test_trade_negotiate_updates_trade(self):
+        offerer = make_user(username='offer_negotiate', email='offer_negotiate@example.com', credits=0)
+        requester = make_user(username='req_negotiate', email='req_negotiate@example.com', credits=10)
+        service = make_service(offerer, credits=3)
+        trade = make_trade(offerer, requester, service=service, status=Trade.Status.PENDING, credits_amount=3)
+
+        self.client.force_authenticate(user=offerer)
+        resp = self.client.patch(
+            f'/api/trades/{trade.id}/negotiate/',
+            {
+                'scheduled_date': (timezone.now() + timedelta(days=5)).isoformat(),
+                'credits_amount': 4,
+                'notes': 'Nueva propuesta',
+                'message': 'Te va bien?',
+            },
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        trade.refresh_from_db()
+        self.assertEqual(trade.credits_amount, 4)
+        self.assertEqual(trade.notes, 'Nueva propuesta')
+        self.assertTrue(Message.objects.filter(trade=trade, message_type=Message.Type.TRADE_PROPOSAL).exists())
+
+    def test_trade_negotiate_rejects_non_participant_when_object_is_resolved(self):
+        offerer = make_user(username='offer_direct', email='offer_direct@example.com')
+        requester = make_user(username='req_direct', email='req_direct@example.com')
+        outsider = make_user(username='outsider_direct', email='outsider_direct@example.com')
+        trade = make_trade(offerer, requester)
+        view = TradeViewSet()
+        view.get_object = lambda: trade
+        request = APIRequestFactory().patch('/')
+        request.user = outsider
+
+        resp = view.negotiate(request, pk=trade.id)
+
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
 
 class AdminUserEndpointsTests(TestCase):

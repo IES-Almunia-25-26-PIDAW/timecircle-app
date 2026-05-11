@@ -34,11 +34,6 @@ class CategorySerializer(serializers.ModelSerializer):
         model  = Category
         fields = ['id', 'name', 'description', 'icon']
 
-
-# ══════════════════════════════════════════════════════════
-#  USUARIOS
-# ══════════════════════════════════════════════════════════
-
 class UserRegistrationSerializer(serializers.ModelSerializer):
     """Serializer de solo-escritura para el registro de nuevos usuarios."""
 
@@ -75,11 +70,6 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data: dict) -> User:
-        # Los nuevos usuarios empiezan con 0 créditos.
-        # Ganan créditos completando acciones de onboarding:
-        #   +0,5 cr al añadir su primera habilidad
-        #   +0,5 cr al publicar su primer servicio
-        #   +1,0 cr al completar su primer intercambio como proveedor
         user = User.objects.create_user(credits=decimal.Decimal('0.0'), **validated_data)
         return user
 
@@ -253,11 +243,6 @@ class UserSkillSerializer(serializers.ModelSerializer):
     class Meta:
         model  = UserSkill
         fields = ['id', 'skill', 'skill_id']
-
-
-# ══════════════════════════════════════════════════════════
-#  SERVICIOS
-# ══════════════════════════════════════════════════════════
 
 class ServiceSerializer(serializers.ModelSerializer):
     user        = UserSerializer(read_only=True)
@@ -721,11 +706,6 @@ class TradeStatusUpdateSerializer(serializers.ModelSerializer):
                 description='Bono de onboarding: primer intercambio como proveedor',
             )
 
-
-# ══════════════════════════════════════════════════════════
-#  TRANSACCIONES
-# ══════════════════════════════════════════════════════════
-
 class TransactionSerializer(serializers.ModelSerializer):
     trade_id     = serializers.IntegerField(source='trade.id', read_only=True)
     service_name = serializers.SerializerMethodField()
@@ -892,11 +872,6 @@ class ReviewCreateSerializer(serializers.ModelSerializer):
         review.reviewee.update_rating()
         return review
 
-
-# ══════════════════════════════════════════════════════════
-#  ADMIN
-# ══════════════════════════════════════════════════════════
-
 class AdminUserSerializer(serializers.ModelSerializer):
     """Serializer con todos los campos para el panel de administración."""
     name = serializers.SerializerMethodField()
@@ -928,11 +903,6 @@ class AdminUserUpdateSerializer(serializers.ModelSerializer):
         if value < 0:
             raise serializers.ValidationError('Los créditos no pueden ser negativos mediante ajuste manual.')
         return value
-
-
-# ══════════════════════════════════════════════════════════
-#  CONTACTO
-# ══════════════════════════════════════════════════════════
 
 class ContactMessageSerializer(serializers.ModelSerializer):
     """Serializer para el formulario de contacto público."""

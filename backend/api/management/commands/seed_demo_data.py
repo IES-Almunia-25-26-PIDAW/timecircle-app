@@ -23,6 +23,9 @@ from api.models import (
 
 class Command(BaseCommand):
     help = 'Pobla la base de datos con datos de demostración para TimeCircle.'
+    USER_PASSWORD = 'Demo1234!'
+    ADMIN_PASSWORD = 'Admin1234!'
+    JEREZ_TEXT = 'Jerez de la Frontera'
 
     def add_arguments(self, parser):
         parser.add_argument('--reset', action='store_true',
@@ -42,13 +45,13 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS('Datos eliminados.\n'))
 
         self._create_admin()
-        users      = self._create_users()
-        skills     = self._create_skills(users)
         categories = list(Category.objects.all())
-        tags       = self._create_tags()
-        services   = self._create_services(users, categories, tags)
+        users      = self._create_users()
+        services   = self._create_services(users, categories)
         trades     = self._create_trades(users, services)
-        self._create_conversations(users, trades)
+        self._create_skills(users)
+        self._create_tags()
+        self._create_conversations(users)
         self._create_reviews(users, trades)
 
         self.stdout.write(self.style.SUCCESS('\n✔ Datos de demo creados correctamente.'))
@@ -61,7 +64,7 @@ class Command(BaseCommand):
             User.objects.create_superuser(
                 username='admin',
                 email='admin@timecircle.com',
-                password='Admin1234!',
+                password=self.ADMIN_PASSWORD,
                 first_name='Admin',
                 last_name='TimeCircle',
                 bio='Administrador de la plataforma TimeCircle.',
@@ -70,6 +73,50 @@ class Command(BaseCommand):
                 credits=decimal.Decimal('0.0'),
             )
             self.stdout.write(self.style.SUCCESS('  ✔ Admin creado'))
+
+    def _resolve_coords(self, data: dict, demo_coords: dict) -> tuple | None:
+        """Return (lat, lon) strings from explicit data fields or the city fallback map."""
+        if data.get('latitude') and data.get('longitude'):
+            return data['latitude'], data['longitude']
+        return demo_coords.get((data.get('location') or '').strip())
+
+
+    def _build_location_update(self, user, loc: str, coords: tuple, data: dict) -> list[str]:
+        """Patch *user* with coordinate/city data and return the list of fields to save."""
+        user.latitude  = decimal.Decimal(coords[0])
+        user.longitude = decimal.Decimal(coords[1])
+        user.city      = loc
+        user.country   = 'España'
+        fields = ['latitude', 'longitude', 'city', 'country']
+
+        optional = ['street_address', 'postal_code']
+        for field in optional:
+            if data.get(field):
+                setattr(user, field, data[field])
+                fields.append(field)
+
+        if 'share_exact_location' in data:
+            user.share_exact_location = bool(data['share_exact_location'])
+            fields.append('share_exact_location')
+
+        return fields
+
+
+    def _get_or_create_demo_user(self, data: dict, demo_coords: dict):
+        """Return the User for *data*, creating and geo-patching it when absent."""
+        existing = User.objects.filter(username=data['username']).first()
+        if existing:
+            return existing, False
+
+        user = User.objects.create_user(**data)
+        loc    = (data.get('location') or '').strip()
+        coords = self._resolve_coords(data, demo_coords)
+
+        if coords:
+            fields = self._build_location_update(user, loc, coords, data)
+            user.save(update_fields=fields)
+
+        return user, True
 
     def _create_users(self):
         """
@@ -82,7 +129,7 @@ class Command(BaseCommand):
         """
         demo_users = [
             {
-                'username': 'maria_garcia', 'email': 'maria@demo.com', 'password': 'Demo1234!',
+                'username': 'maria_garcia', 'email': 'maria@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'María', 'last_name': 'García',
                 'bio': 'Profesora jubilada apasionada por la jardinería y la cocina tradicional.',
                 'location': 'Madrid',
@@ -91,7 +138,7 @@ class Command(BaseCommand):
                 'completed_trades': 12, 'hours_given': 8, 'hours_received': 5,
             },
             {
-                'username': 'carlos_lopez', 'email': 'carlos@demo.com', 'password': 'Demo1234!',
+                'username': 'carlos_lopez', 'email': 'carlos@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'Carlos', 'last_name': 'López',
                 'bio': 'Ingeniero informático. Me encanta ayudar con tecnología y dar clases de programación.',
                 'location': 'Barcelona',
@@ -99,7 +146,7 @@ class Command(BaseCommand):
                 'completed_trades': 7, 'hours_given': 5, 'hours_received': 3,
             },
             {
-                'username': 'ana_martinez', 'email': 'ana@demo.com', 'password': 'Demo1234!',
+                'username': 'ana_martinez', 'email': 'ana@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'Ana', 'last_name': 'Martínez',
                 'bio': 'Fisioterapeuta y profesora de yoga. Vivo en el barrio de Gracia.',
                 'location': 'Barcelona',
@@ -107,7 +154,7 @@ class Command(BaseCommand):
                 'completed_trades': 21, 'hours_given': 14, 'hours_received': 8,
             },
             {
-                'username': 'pedro_sanchez', 'email': 'pedro@demo.com', 'password': 'Demo1234!',
+                'username': 'pedro_sanchez', 'email': 'pedro@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'Pedro', 'last_name': 'Sánchez',
                 'bio': 'Electricista autónomo. Puedo ayudar con instalaciones y reparaciones del hogar.',
                 'location': 'Valencia',
@@ -116,7 +163,7 @@ class Command(BaseCommand):
                 'completed_trades': 3, 'hours_given': 2, 'hours_received': 1,
             },
             {
-                'username': 'lucia_fernandez', 'email': 'lucia@demo.com', 'password': 'Demo1234!',
+                'username': 'lucia_fernandez', 'email': 'lucia@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'Lucía', 'last_name': 'Fernández',
                 'bio': 'Diseñadora gráfica y fotógrafa. Hablo inglés, francés y español.',
                 'location': 'Sevilla',
@@ -124,34 +171,34 @@ class Command(BaseCommand):
                 'completed_trades': 35, 'hours_given': 22, 'hours_received': 12,
             },
             {
-                'username': 'marta_jerez', 'email': 'marta.jerez@demo.com', 'password': 'Demo1234!',
+                'username': 'marta_jerez', 'email': 'marta.jerez@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'Marta', 'last_name': 'Rubio',
                 'bio': 'Profesora de guitarra, especializada en flamenco.',
-                'location': 'Jerez de la Frontera',
+                'location': self.JEREZ_TEXT,
                 'street_address': 'Calle Larga 12', 'postal_code': '11401', 'share_exact_location': True,
                 'credits': decimal.Decimal('10.0'),
                 'completed_trades': 10, 'hours_given': 12, 'hours_received': 4,
             },
             {
-                'username': 'jose_jerez', 'email': 'jose.jerez@demo.com', 'password': 'Demo1234!',
+                'username': 'jose_jerez', 'email': 'jose.jerez@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'José', 'last_name': 'López',
                 'bio': 'Carpintero y aficionado a la restauración de muebles.',
-                'location': 'Jerez de la Frontera',
+                'location': self.JEREZ_TEXT,
                 'street_address': 'Calle Ancha 5', 'postal_code': '11402', 'share_exact_location': True,
                 'credits': decimal.Decimal('6.0'),
                 'completed_trades': 5, 'hours_given': 6, 'hours_received': 2,
             },
             {
-                'username': 'juan_jerez', 'email': 'juan.jerez@demo.com', 'password': 'Demo1234!',
+                'username': 'juan_jerez', 'email': 'juan.jerez@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'Juan', 'last_name': 'García',
                 'bio': 'Necesito ayuda con mudanza y transporte local.',
-                'location': 'Jerez de la Frontera',
+                'location': self.JEREZ_TEXT,
                 'street_address': 'Avenida de la Constitución 23', 'postal_code': '11403', 'share_exact_location': True,
                 'credits': decimal.Decimal('2.0'),
                 'completed_trades': 1, 'hours_given': 0, 'hours_received': 1,
             },
             {
-                'username': 'elena_madrid', 'email': 'elena.madrid@demo.com', 'password': 'Demo1234!',
+                'username': 'elena_madrid', 'email': 'elena.madrid@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'Elena', 'last_name': 'Ruiz',
                 'bio': 'Traductora y vecina de Chamberí. Ayudo con idiomas y trámites cotidianos.',
                 'location': 'Madrid',
@@ -161,7 +208,7 @@ class Command(BaseCommand):
                 'completed_trades': 9, 'hours_given': 7, 'hours_received': 3,
             },
             {
-                'username': 'diego_madrid', 'email': 'diego.madrid@demo.com', 'password': 'Demo1234!',
+                'username': 'diego_madrid', 'email': 'diego.madrid@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'Diego', 'last_name': 'Moreno',
                 'bio': 'Entrenador personal en Retiro. Me gusta organizar rutas urbanas y sesiones al aire libre.',
                 'location': 'Madrid',
@@ -171,7 +218,7 @@ class Command(BaseCommand):
                 'completed_trades': 24, 'hours_given': 18, 'hours_received': 6,
             },
             {
-                'username': 'sofia_madrid', 'email': 'sofia.madrid@demo.com', 'password': 'Demo1234!',
+                'username': 'sofia_madrid', 'email': 'sofia.madrid@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'Sofía', 'last_name': 'Navarro',
                 'bio': 'Arquitecta técnica. Puedo orientar en reformas pequeñas y eficiencia energética.',
                 'location': 'Madrid',
@@ -181,7 +228,7 @@ class Command(BaseCommand):
                 'completed_trades': 6, 'hours_given': 5, 'hours_received': 2,
             },
             {
-                'username': 'raul_madrid', 'email': 'raul.madrid@demo.com', 'password': 'Demo1234!',
+                'username': 'raul_madrid', 'email': 'raul.madrid@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'Raúl', 'last_name': 'Ortega',
                 'bio': 'Técnico de sonido y músico aficionado. Ayudo con grabaciones caseras y eventos.',
                 'location': 'Madrid',
@@ -191,7 +238,7 @@ class Command(BaseCommand):
                 'completed_trades': 4, 'hours_given': 3, 'hours_received': 2,
             },
             {
-                'username': 'nuria_barcelona', 'email': 'nuria.barcelona@demo.com', 'password': 'Demo1234!',
+                'username': 'nuria_barcelona', 'email': 'nuria.barcelona@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'Núria', 'last_name': 'Vidal',
                 'bio': 'Ilustradora en Poblenou. Comparto técnicas de dibujo digital y acuarela.',
                 'location': 'Barcelona',
@@ -201,7 +248,7 @@ class Command(BaseCommand):
                 'completed_trades': 14, 'hours_given': 11, 'hours_received': 4,
             },
             {
-                'username': 'pau_barcelona', 'email': 'pau.barcelona@demo.com', 'password': 'Demo1234!',
+                'username': 'pau_barcelona', 'email': 'pau.barcelona@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'Pau', 'last_name': 'Serra',
                 'bio': 'Cocinero de barrio en Sants. Enseño recetas de aprovechamiento y cocina saludable.',
                 'location': 'Barcelona',
@@ -211,7 +258,7 @@ class Command(BaseCommand):
                 'completed_trades': 8, 'hours_given': 6, 'hours_received': 5,
             },
             {
-                'username': 'laia_barcelona', 'email': 'laia.barcelona@demo.com', 'password': 'Demo1234!',
+                'username': 'laia_barcelona', 'email': 'laia.barcelona@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'Laia', 'last_name': 'Ferrer',
                 'bio': 'Enfermera y formadora en primeros auxilios básicos para familias y asociaciones.',
                 'location': 'Barcelona',
@@ -221,7 +268,7 @@ class Command(BaseCommand):
                 'completed_trades': 27, 'hours_given': 20, 'hours_received': 7,
             },
             {
-                'username': 'marc_barcelona', 'email': 'marc.barcelona@demo.com', 'password': 'Demo1234!',
+                'username': 'marc_barcelona', 'email': 'marc.barcelona@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'Marc', 'last_name': 'Pujol',
                 'bio': 'Desarrollador frontend. Puedo ayudar con webs personales y accesibilidad.',
                 'location': 'Barcelona',
@@ -231,7 +278,7 @@ class Command(BaseCommand):
                 'completed_trades': 5, 'hours_given': 4, 'hours_received': 3,
             },
             {
-                'username': 'clara_valencia', 'email': 'clara.valencia@demo.com', 'password': 'Demo1234!',
+                'username': 'clara_valencia', 'email': 'clara.valencia@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'Clara', 'last_name': 'Soler',
                 'bio': 'Bióloga y educadora ambiental. Organizo talleres sobre plantas mediterráneas.',
                 'location': 'Valencia',
@@ -241,7 +288,7 @@ class Command(BaseCommand):
                 'completed_trades': 7, 'hours_given': 6, 'hours_received': 2,
             },
             {
-                'username': 'toni_valencia', 'email': 'toni.valencia@demo.com', 'password': 'Demo1234!',
+                'username': 'toni_valencia', 'email': 'toni.valencia@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'Toni', 'last_name': 'Ibáñez',
                 'bio': 'Mecánico de bicicletas en Benimaclet. Ayudo con mantenimiento y rutas urbanas.',
                 'location': 'Valencia',
@@ -251,7 +298,7 @@ class Command(BaseCommand):
                 'completed_trades': 11, 'hours_given': 9, 'hours_received': 3,
             },
             {
-                'username': 'ines_valencia', 'email': 'ines.valencia@demo.com', 'password': 'Demo1234!',
+                'username': 'ines_valencia', 'email': 'ines.valencia@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'Inés', 'last_name': 'Crespo',
                 'bio': 'Profesora de historia del arte. Me encanta preparar visitas culturales por la ciudad.',
                 'location': 'Valencia',
@@ -261,7 +308,7 @@ class Command(BaseCommand):
                 'completed_trades': 22, 'hours_given': 16, 'hours_received': 8,
             },
             {
-                'username': 'sergio_valencia', 'email': 'sergio.valencia@demo.com', 'password': 'Demo1234!',
+                'username': 'sergio_valencia', 'email': 'sergio.valencia@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'Sergio', 'last_name': 'Pastor',
                 'bio': 'Fotógrafo aficionado en Ruzafa. Comparto edición básica y fotografía nocturna.',
                 'location': 'Valencia',
@@ -271,7 +318,7 @@ class Command(BaseCommand):
                 'completed_trades': 4, 'hours_given': 4, 'hours_received': 1,
             },
             {
-                'username': 'rocio_sevilla', 'email': 'rocio.sevilla@demo.com', 'password': 'Demo1234!',
+                'username': 'rocio_sevilla', 'email': 'rocio.sevilla@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'Rocío', 'last_name': 'Molina',
                 'bio': 'Maestra de primaria. Ayudo con apoyo escolar y organización de estudio.',
                 'location': 'Sevilla',
@@ -281,7 +328,7 @@ class Command(BaseCommand):
                 'completed_trades': 10, 'hours_given': 8, 'hours_received': 4,
             },
             {
-                'username': 'alvaro_sevilla', 'email': 'alvaro.sevilla@demo.com', 'password': 'Demo1234!',
+                'username': 'alvaro_sevilla', 'email': 'alvaro.sevilla@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'Álvaro', 'last_name': 'Reyes',
                 'bio': 'Guía turístico y apasionado de la historia local. Preparo rutas por barrios sevillanos.',
                 'location': 'Sevilla',
@@ -291,7 +338,7 @@ class Command(BaseCommand):
                 'completed_trades': 25, 'hours_given': 19, 'hours_received': 5,
             },
             {
-                'username': 'paula_sevilla', 'email': 'paula.sevilla@demo.com', 'password': 'Demo1234!',
+                'username': 'paula_sevilla', 'email': 'paula.sevilla@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'Paula', 'last_name': 'Benítez',
                 'bio': 'Costurera y diseñadora de arreglos. Enseño pequeños remiendos y patronaje básico.',
                 'location': 'Sevilla',
@@ -301,7 +348,7 @@ class Command(BaseCommand):
                 'completed_trades': 5, 'hours_given': 5, 'hours_received': 2,
             },
             {
-                'username': 'manuel_sevilla', 'email': 'manuel.sevilla@demo.com', 'password': 'Demo1234!',
+                'username': 'manuel_sevilla', 'email': 'manuel.sevilla@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'Manuel', 'last_name': 'Campos',
                 'bio': 'Jardinero con experiencia en patios y macetas. Puedo ayudar a diseñar rincones verdes.',
                 'location': 'Sevilla',
@@ -311,40 +358,40 @@ class Command(BaseCommand):
                 'completed_trades': 13, 'hours_given': 12, 'hours_received': 4,
             },
             {
-                'username': 'belen_jerez', 'email': 'belen.jerez@demo.com', 'password': 'Demo1234!',
+                'username': 'belen_jerez', 'email': 'belen.jerez@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'Belén', 'last_name': 'Ramos',
                 'bio': 'Repostera casera. Comparto recetas de dulces tradicionales y organización de eventos.',
-                'location': 'Jerez de la Frontera',
+                'location': self.JEREZ_TEXT,
                 'street_address': 'Calle Porvera 28', 'postal_code': '11403',
                 'latitude': '36.688400', 'longitude': '-6.142300', 'share_exact_location': True,
                 'credits': decimal.Decimal('9.0'),
                 'completed_trades': 8, 'hours_given': 7, 'hours_received': 3,
             },
             {
-                'username': 'ismael_jerez', 'email': 'ismael.jerez@demo.com', 'password': 'Demo1234!',
+                'username': 'ismael_jerez', 'email': 'ismael.jerez@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'Ismael', 'last_name': 'Carmona',
                 'bio': 'Informático de soporte. Ayudo con móviles, impresoras y seguridad básica.',
-                'location': 'Jerez de la Frontera',
+                'location': self.JEREZ_TEXT,
                 'street_address': 'Avenida Álvaro Domecq 11', 'postal_code': '11405',
                 'latitude': '36.695300', 'longitude': '-6.130700', 'share_exact_location': True,
                 'credits': decimal.Decimal('15.5'),
                 'completed_trades': 18, 'hours_given': 13, 'hours_received': 6,
             },
             {
-                'username': 'carmen_jerez', 'email': 'carmen.jerez@demo.com', 'password': 'Demo1234!',
+                'username': 'carmen_jerez', 'email': 'carmen.jerez@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'Carmen', 'last_name': 'Vega',
                 'bio': 'Profesora de baile. Ofrezco iniciación a sevillanas y estiramientos para mayores.',
-                'location': 'Jerez de la Frontera',
+                'location': self.JEREZ_TEXT,
                 'street_address': 'Calle Medina 44', 'postal_code': '11402',
                 'latitude': '36.682700', 'longitude': '-6.134800', 'share_exact_location': True,
                 'credits': decimal.Decimal('22.0'),
                 'completed_trades': 30, 'hours_given': 23, 'hours_received': 9,
             },
             {
-                'username': 'luis_jerez', 'email': 'luis.jerez@demo.com', 'password': 'Demo1234!',
+                'username': 'luis_jerez', 'email': 'luis.jerez@demo.com', 'password': self.USER_PASSWORD,
                 'first_name': 'Luis', 'last_name': 'Domínguez',
                 'bio': 'Aficionado a la electrónica y pequeñas reparaciones. También enseño soldadura básica.',
-                'location': 'Jerez de la Frontera',
+                'location': self.JEREZ_TEXT,
                 'street_address': 'Calle Corredera 19', 'postal_code': '11402',
                 'latitude': '36.681300', 'longitude': '-6.139900', 'share_exact_location': True,
                 'credits': decimal.Decimal('5.5'),
@@ -359,51 +406,35 @@ class Command(BaseCommand):
             'Barcelona': ('41.385064', '2.173404'),
             'Valencia': ('39.469908', '-0.376288'),
             'Sevilla': ('37.389092', '-5.984459'),
-            'Jerez de la Frontera': ('36.685000', '-6.126000'),
+            self.JEREZ_TEXT: ('36.685000', '-6.126000'),
         }
 
         for data in demo_users:
-            if not User.objects.filter(username=data['username']).exists():
-                user = User.objects.create_user(**data)
-                # If the demo user's human-readable location matches a known city,
-                # populate precise (private) coordinates and structured city/country.
-                loc = (data.get('location') or '').strip()
-                coords = (
-                    (data.get('latitude'), data.get('longitude'))
-                    if data.get('latitude') and data.get('longitude')
-                    else demo_coords.get(loc)
-                )
-                if coords:
-                    user.latitude = decimal.Decimal(coords[0])
-                    user.longitude = decimal.Decimal(coords[1])
-                    user.city = loc
-                    user.country = 'España'
-                    update_fields = ['latitude', 'longitude', 'city', 'country']
-                    # Optional exact-address demo values
-                    if data.get('street_address'):
-                        user.street_address = data.get('street_address')
-                        update_fields.append('street_address')
-                    if data.get('postal_code'):
-                        user.postal_code = data.get('postal_code')
-                        update_fields.append('postal_code')
-                    if 'share_exact_location' in data:
-                        user.share_exact_location = bool(data.get('share_exact_location'))
-                        update_fields.append('share_exact_location')
-                    user.save(update_fields=update_fields)
-
-                user.update_badge()
+                user, created = self._get_or_create_demo_user(data, demo_coords)
+                if created:
+                    user.update_badge()
+                    self.stdout.write(f'  ✔ Usuario: {user.username}')
                 users.append(user)
-                self.stdout.write(f'  ✔ Usuario: {user.username}')
-            else:
-                users.append(User.objects.get(username=data['username']))
 
         return users
 
     def _create_skills(self, users):
+        PROGRAMMING_PYTHON = 'Programación Python'
+        WEB_DESIGN = 'Diseño Web'
+        ELECTRICAL_REPAIRS = 'Reparaciones eléctricas'
+        GARDENING = 'Jardinería'
+        MEDITERRANEAN_COOKING = 'Cocina mediterránea'
+        YOGA = 'Yoga'
+        PHOTOGRAPHY = 'Fotografía'
+        ENGLISH = 'Inglés'
+        FRENCH = 'Francés'
+        PHYSIOTHERAPY = 'Fisioterapia'
+        TUTORING = 'Clases particulares'
+
         skill_names = [
-            'Programación Python', 'Diseño Web', 'Reparaciones eléctricas',
-            'Jardinería', 'Cocina mediterránea', 'Yoga', 'Fotografía',
-            'Inglés', 'Francés', 'Fisioterapia', 'Clases particulares',
+            PROGRAMMING_PYTHON, WEB_DESIGN, ELECTRICAL_REPAIRS,
+            GARDENING, MEDITERRANEAN_COOKING, YOGA, PHOTOGRAPHY,
+            ENGLISH, FRENCH, PHYSIOTHERAPY, TUTORING,
         ]
         skills = []
         for name in skill_names:
@@ -411,11 +442,11 @@ class Command(BaseCommand):
             skills.append(skill)
 
         assignments = [
-            (users[0], ['Jardinería', 'Cocina mediterránea', 'Clases particulares']),
-            (users[1], ['Programación Python', 'Diseño Web', 'Inglés']),
-            (users[2], ['Yoga', 'Fisioterapia', 'Inglés']),
-            (users[3], ['Reparaciones eléctricas']),
-            (users[4], ['Diseño Web', 'Fotografía', 'Inglés', 'Francés']),
+            (users[0], [GARDENING, MEDITERRANEAN_COOKING, TUTORING]),
+            (users[1], [PROGRAMMING_PYTHON, WEB_DESIGN, ENGLISH]),
+            (users[2], [YOGA, PHYSIOTHERAPY, ENGLISH]),
+            (users[3], [ELECTRICAL_REPAIRS]),
+            (users[4], [WEB_DESIGN, PHOTOGRAPHY, ENGLISH, FRENCH]),
         ]
         for user, skill_names_list in assignments:
             for sname in skill_names_list:
@@ -436,7 +467,15 @@ class Command(BaseCommand):
             tags.append(tag)
         return tags
 
-    def _create_services(self, users, categories, tags):
+    def _create_services(self, users, categories):
+        TECNOLOGY = 'Tecnología'
+        COOKING = 'Cocina'
+        WELLNESS = 'Deporte y Bienestar'
+        HOME = 'Hogar'
+        ART = 'Arte y Creatividad'
+        LANGUAGES = 'Idiomas'
+        EVENTS = 'Eventos'
+        EDUCATION = 'Educación'
         cat = {c.name: c for c in categories}
 
         # Map users by username to allow referencing by name in services_data
@@ -447,218 +486,217 @@ class Command(BaseCommand):
                 'user': users[0], 'type': 'offer',
                 'title': 'Clases de cocina mediterránea',
                 'description': 'Enseño a cocinar platos tradicionales de la cocina española.',
-                'category': cat.get('Cocina'), 'duration': 120, 'credits': 2,
+                'category': cat.get(COOKING), 'duration': 120, 'credits': 2,
                 'tag_names': ['presencial', 'principiantes'],
             },
             {
                 'user': users[0], 'type': 'request',
                 'title': 'Necesito ayuda con el ordenador',
                 'description': 'Tengo problemas con mi portátil. Necesito que alguien me ayude a configurarlo.',
-                'category': cat.get('Tecnología'), 'duration': 60, 'credits': 1,
+                'category': cat.get(TECNOLOGY), 'duration': 60, 'credits': 1,
                 'tag_names': ['presencial', 'urgente'],
             },
             {
                 'user': users[1], 'type': 'offer',
                 'title': 'Clases de programación Python',
                 'description': 'Doy clases de Python desde cero.',
-                'category': cat.get('Tecnología'), 'duration': 90, 'credits': 2,
+                'category': cat.get(TECNOLOGY), 'duration': 90, 'credits': 2,
                 'tag_names': ['online', 'principiantes', 'avanzado'],
             },
             {
                 'user': users[2], 'type': 'offer',
                 'title': 'Sesión de yoga para principiantes',
                 'description': 'Clases de yoga adaptadas a principiantes.',
-                'category': cat.get('Deporte y Bienestar'), 'duration': 60, 'credits': 1,
+                'category': cat.get(WELLNESS), 'duration': 60, 'credits': 1,
                 'tag_names': ['presencial', 'principiantes', 'fines-de-semana'],
             },
             {
                 'user': users[3], 'type': 'offer',
                 'title': 'Revisión eléctrica del hogar',
                 'description': 'Soy electricista certificado. Reviso instalaciones.',
-                'category': cat.get('Hogar'), 'duration': 60, 'credits': 2,
+                'category': cat.get(HOME), 'duration': 60, 'credits': 2,
                 'tag_names': ['presencial', 'urgente'],
             },
             {
                 'user': users[4], 'type': 'offer',
                 'title': 'Sesión fotográfica de retrato',
                 'description': 'Reportaje fotográfico de 1 hora. Edición incluida.',
-                'category': cat.get('Arte y Creatividad'), 'duration': 60, 'credits': 3,
+                'category': cat.get(ART), 'duration': 60, 'credits': 3,
                 'tag_names': ['presencial'],
             },
             {
                 'user': users[4], 'type': 'offer',
                 'title': 'Traducción inglés-español',
                 'description': 'Traduzco documentos del inglés al español y viceversa.',
-                'category': cat.get('Idiomas'), 'duration': 30, 'credits': 1,
+                'category': cat.get(LANGUAGES), 'duration': 30, 'credits': 1,
                 'tag_names': ['online', 'flexible'],
             },
             {
                 'user': users[1], 'type': 'request',
                 'title': 'Busco clases de inglés conversacional',
                 'description': 'Quiero mejorar mi inglés hablado. Nivel B1.',
-                'category': cat.get('Idiomas'), 'duration': 60, 'credits': 1,
+                'category': cat.get(LANGUAGES), 'duration': 60, 'credits': 1,
                 'tag_names': ['online', 'entre-semana'],
             },
-            # Jerez-based services
             {
                 'username': 'marta_jerez', 'type': 'offer',
                 'title': 'Clases de guitarra flamenca',
                 'description': 'Clases particulares y grupales de toque flamenco.',
-                'category': cat.get('Arte y Creatividad'), 'duration': 60, 'credits': 2,
+                'category': cat.get(ART), 'duration': 60, 'credits': 2,
                 'tag_names': ['presencial', 'fines-de-semana'],
             },
             {
                 'username': 'jose_jerez', 'type': 'offer',
                 'title': 'Restauración de muebles antiguos',
                 'description': 'Restauración y reparación de muebles de madera en Jerez.',
-                'category': cat.get('Hogar'), 'duration': 120, 'credits': 3,
+                'category': cat.get(HOME), 'duration': 120, 'credits': 3,
                 'tag_names': ['presencial', 'flexible'],
             },
             {
                 'username': 'juan_jerez', 'type': 'request',
                 'title': 'Ayuda mudanza local',
                 'description': 'Busco ayuda con una mudanza en la ciudad, preferiblemente con furgoneta.',
-                'category': cat.get('Hogar'), 'duration': 180, 'credits': 4,
+                'category': cat.get(HOME), 'duration': 180, 'credits': 4,
                 'tag_names': ['presencial', 'fines-de-semana'],
             },
             {
                 'username': 'elena_madrid', 'type': 'offer',
                 'title': 'Conversación en inglés para trámites',
                 'description': 'Practicamos inglés útil para entrevistas, viajes y gestiones administrativas.',
-                'category': cat.get('Idiomas'), 'duration': 60, 'credits': 1,
+                'category': cat.get(LANGUAGES), 'duration': 60, 'credits': 1,
                 'tag_names': ['online', 'entre-semana'],
             },
             {
                 'username': 'diego_madrid', 'type': 'offer',
                 'title': 'Entrenamiento funcional en Retiro',
                 'description': 'Sesiones adaptadas para mejorar movilidad, fuerza y constancia semanal.',
-                'category': cat.get('Deporte y Bienestar'), 'duration': 60, 'credits': 2,
+                'category': cat.get(WELLNESS), 'duration': 60, 'credits': 2,
                 'tag_names': ['presencial', 'principiantes'],
             },
             {
                 'username': 'sofia_madrid', 'type': 'request',
                 'title': 'Busco ayuda para grabar un podcast',
                 'description': 'Necesito asesoramiento básico de sonido para grabar entrevistas en casa.',
-                'category': cat.get('Tecnología'), 'duration': 90, 'credits': 2,
+                'category': cat.get(TECNOLOGY), 'duration': 90, 'credits': 2,
                 'tag_names': ['presencial', 'flexible'],
             },
             {
                 'username': 'raul_madrid', 'type': 'offer',
                 'title': 'Montaje de audio para eventos pequeños',
                 'description': 'Configuro micrófonos, altavoces y grabación sencilla para charlas o reuniones.',
-                'category': cat.get('Eventos'), 'duration': 120, 'credits': 3,
+                'category': cat.get(EVENTS), 'duration': 120, 'credits': 3,
                 'tag_names': ['presencial', 'fines-de-semana'],
             },
             {
                 'username': 'nuria_barcelona', 'type': 'offer',
                 'title': 'Taller de ilustración digital',
                 'description': 'Aprende bocetado, color y exportación de piezas sencillas para redes.',
-                'category': cat.get('Arte y Creatividad'), 'duration': 90, 'credits': 2,
+                'category': cat.get(ART), 'duration': 90, 'credits': 2,
                 'tag_names': ['online', 'principiantes'],
             },
             {
                 'username': 'pau_barcelona', 'type': 'offer',
                 'title': 'Cocina saludable de aprovechamiento',
                 'description': 'Planificamos recetas económicas para aprovechar ingredientes de temporada.',
-                'category': cat.get('Cocina'), 'duration': 120, 'credits': 2,
+                'category': cat.get(COOKING), 'duration': 120, 'credits': 2,
                 'tag_names': ['presencial', 'flexible'],
             },
             {
                 'username': 'laia_barcelona', 'type': 'offer',
                 'title': 'Primeros auxilios para familias',
                 'description': 'Sesión práctica de prevención, reacción ante accidentes y botiquín doméstico.',
-                'category': cat.get('Deporte y Bienestar'), 'duration': 90, 'credits': 2,
+                'category': cat.get(WELLNESS), 'duration': 90, 'credits': 2,
                 'tag_names': ['presencial', 'principiantes'],
             },
             {
                 'username': 'marc_barcelona', 'type': 'request',
                 'title': 'Busco fotos para mi portfolio web',
                 'description': 'Necesito una sesión sencilla para renovar mi imagen profesional.',
-                'category': cat.get('Arte y Creatividad'), 'duration': 60, 'credits': 2,
+                'category': cat.get(ART), 'duration': 60, 'credits': 2,
                 'tag_names': ['presencial', 'entre-semana'],
             },
             {
                 'username': 'clara_valencia', 'type': 'offer',
                 'title': 'Taller de plantas mediterráneas',
                 'description': 'Consejos para elegir, cuidar y reproducir plantas resistentes al clima local.',
-                'category': cat.get('Hogar'), 'duration': 90, 'credits': 2,
+                'category': cat.get(HOME), 'duration': 90, 'credits': 2,
                 'tag_names': ['presencial', 'fines-de-semana'],
             },
             {
                 'username': 'toni_valencia', 'type': 'offer',
                 'title': 'Puesta a punto de bicicletas',
                 'description': 'Revisión de frenos, cambios, presión y ajustes básicos para moverte por la ciudad.',
-                'category': cat.get('Hogar'), 'duration': 60, 'credits': 2,
+                'category': cat.get(HOME), 'duration': 60, 'credits': 2,
                 'tag_names': ['presencial', 'urgente'],
             },
             {
                 'username': 'ines_valencia', 'type': 'offer',
                 'title': 'Ruta de historia del arte valenciano',
                 'description': 'Paseo guiado por edificios y plazas con contexto histórico accesible.',
-                'category': cat.get('Educación'), 'duration': 120, 'credits': 2,
+                'category': cat.get(EDUCATION), 'duration': 120, 'credits': 2,
                 'tag_names': ['presencial', 'fines-de-semana'],
             },
             {
                 'username': 'sergio_valencia', 'type': 'request',
                 'title': 'Busco plantas resistentes para terraza',
                 'description': 'Quiero mejorar una terraza pequeña con especies fáciles de cuidar.',
-                'category': cat.get('Hogar'), 'duration': 60, 'credits': 1,
+                'category': cat.get(HOME), 'duration': 60, 'credits': 1,
                 'tag_names': ['presencial', 'flexible'],
             },
             {
                 'username': 'rocio_sevilla', 'type': 'offer',
                 'title': 'Apoyo escolar de primaria',
                 'description': 'Refuerzo de lectura, matemáticas y hábitos de estudio para niñas y niños.',
-                'category': cat.get('Educación'), 'duration': 60, 'credits': 1,
+                'category': cat.get(EDUCATION), 'duration': 60, 'credits': 1,
                 'tag_names': ['presencial', 'entre-semana'],
             },
             {
                 'username': 'alvaro_sevilla', 'type': 'offer',
                 'title': 'Ruta histórica por la Alameda',
                 'description': 'Paseo comentado por la historia del barrio y sus espacios culturales.',
-                'category': cat.get('Educación'), 'duration': 90, 'credits': 2,
+                'category': cat.get(EDUCATION), 'duration': 90, 'credits': 2,
                 'tag_names': ['presencial', 'fines-de-semana'],
             },
             {
                 'username': 'paula_sevilla', 'type': 'offer',
                 'title': 'Arreglos básicos de ropa',
                 'description': 'Enseño a hacer bajos, coser botones y ajustar prendas sencillas.',
-                'category': cat.get('Hogar'), 'duration': 90, 'credits': 2,
+                'category': cat.get(HOME), 'duration': 90, 'credits': 2,
                 'tag_names': ['presencial', 'principiantes'],
             },
             {
                 'username': 'manuel_sevilla', 'type': 'request',
                 'title': 'Busco apoyo para ordenar facturas',
                 'description': 'Necesito ayuda para digitalizar recibos y organizar documentos domésticos.',
-                'category': cat.get('Tecnología'), 'duration': 60, 'credits': 1,
+                'category': cat.get(TECNOLOGY), 'duration': 60, 'credits': 1,
                 'tag_names': ['presencial', 'flexible'],
             },
             {
                 'username': 'belen_jerez', 'type': 'offer',
                 'title': 'Repostería tradicional jerezana',
                 'description': 'Taller práctico de dulces caseros para celebraciones y meriendas.',
-                'category': cat.get('Cocina'), 'duration': 120, 'credits': 2,
+                'category': cat.get(COOKING), 'duration': 120, 'credits': 2,
                 'tag_names': ['presencial', 'fines-de-semana'],
             },
             {
                 'username': 'ismael_jerez', 'type': 'offer',
                 'title': 'Configuración segura del móvil',
                 'description': 'Revisamos copias de seguridad, contraseñas, privacidad y apps básicas.',
-                'category': cat.get('Tecnología'), 'duration': 60, 'credits': 1,
+                'category': cat.get(TECNOLOGY), 'duration': 60, 'credits': 1,
                 'tag_names': ['presencial', 'urgente'],
             },
             {
                 'username': 'carmen_jerez', 'type': 'offer',
                 'title': 'Iniciación a sevillanas',
                 'description': 'Clase amable para aprender pasos básicos y mejorar coordinación.',
-                'category': cat.get('Arte y Creatividad'), 'duration': 60, 'credits': 1,
+                'category': cat.get(ART), 'duration': 60, 'credits': 1,
                 'tag_names': ['presencial', 'principiantes'],
             },
             {
                 'username': 'luis_jerez', 'type': 'request',
                 'title': 'Busco ayuda para restaurar una mesa',
                 'description': 'Tengo una mesa antigua y quiero aprender a lijarla y protegerla bien.',
-                'category': cat.get('Hogar'), 'duration': 120, 'credits': 3,
+                'category': cat.get(HOME), 'duration': 120, 'credits': 3,
                 'tag_names': ['presencial', 'flexible'],
             },
         ]
@@ -840,7 +878,38 @@ class Command(BaseCommand):
 
         return trades
 
-    def _create_conversations(self, users, trades):
+    def _resolve_user(self, value, users_map: dict):
+        """Return a User object whether *value* is already one or just a username string."""
+        return users_map.get(value) if isinstance(value, str) else value
+
+
+    def _find_or_create_conversation(self, user1, user2):
+        """Return (conversation, created) — mirrors get_or_create semantics."""
+        target = sorted([user1.id, user2.id])
+        for conv in Conversation.objects.prefetch_related("participants"):
+            if sorted(p.id for p in conv.participants.all()) == target:
+                return conv, False
+
+        conv = Conversation.objects.create()
+        conv.participants.set([user1, user2])
+        return conv, True
+
+
+    def _seed_messages(self, conversation, user1, user2, messages: list):
+        """Bulk-create messages for a freshly created conversation."""
+        user_map = {user1.username: user1, user2.username: user2}
+        Message.objects.bulk_create([
+            Message(
+                conversation=conversation,
+                sender=user_map[username],
+                content=content,
+                read=True,
+            )
+            for username, content in messages
+            if username in user_map
+        ])
+
+    def _create_conversations(self, users):
         users_map = {u.username: u for u in users}
         convs_data = [
             (users[0], users[1], [
@@ -906,36 +975,17 @@ class Command(BaseCommand):
             ]),
         ]
 
-        for user1, user2, messages in convs_data:
-            if isinstance(user1, str):
-                user1 = users_map.get(user1)
-            if isinstance(user2, str):
-                user2 = users_map.get(user2)
+        for raw1, raw2, messages in convs_data:
+            user1 = self._resolve_user(raw1, users_map)
+            user2 = self._resolve_user(raw2, users_map)
+
             if not user1 or not user2:
                 continue
 
-            created_conv = False
-            for conv in Conversation.objects.prefetch_related('participants'):
-                ids = sorted(p.id for p in conv.participants.all())
-                if ids == sorted([user1.id, user2.id]):
-                    conversation = conv
-                    break
-            else:
-                conversation = Conversation.objects.create()
-                conversation.participants.set([user1, user2])
-                created_conv = True
+            conversation, created = self._find_or_create_conversation(user1, user2)
 
-            if created_conv:
-                user_map = {user1.username: user1, user2.username: user2}
-                for username, content in messages:
-                    sender = user_map.get(username)
-                    if sender:
-                        Message.objects.create(
-                            conversation=conversation,
-                            sender=sender,
-                            content=content,
-                            read=True,
-                        )
+            if created:
+                self._seed_messages(conversation, user1, user2, messages)
                 self.stdout.write(f'  ✔ Conversación entre {user1.username} y {user2.username}')
 
     def _create_reviews(self, users, trades):
