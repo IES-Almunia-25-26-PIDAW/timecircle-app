@@ -302,9 +302,9 @@ class RequestPasswordResetView(generics.GenericAPIView):
         """
         from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', None) or settings.EMAIL_HOST_USER or 'no-reply@timecircle.app'
         try:
-                send_mail(subject, message, from_email, [user.email], fail_silently=False, html_message=html_message)
+            send_mail(subject, message, from_email, [user.email], fail_silently=False, html_message=html_message)
         except Exception:
-                return Response({'detail': 'Error al enviar el correo.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'detail': 'Error al enviar el correo.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response({'detail': 'Código enviado al correo.'})
 
