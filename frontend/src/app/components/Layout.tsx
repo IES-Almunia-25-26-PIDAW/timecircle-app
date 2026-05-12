@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Outlet, Link, useNavigate, useLocation, Navigate } from 'react-router';
 import {
   Home, Search, ArrowLeftRight, MessageCircle, Star,
-  User, LogOut, Clock, Shield, History, Menu, X, Plus, ChevronDown, Loader2,
+  User, LogOut, Clock, Shield, History, Menu, X, Plus, ChevronDown, Loader2, Calendar,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { ThemeToggle } from './ThemeToggle';
@@ -10,6 +10,7 @@ import { ThemeToggle } from './ThemeToggle';
 const navItems = [
   { path: '/dashboard',   label: 'Inicio',        icon: Home },
   { path: '/services',    label: 'Servicios',      icon: Search },
+  { path: '/calendar',    label: 'Calendario',     icon: Calendar },
   { path: '/trades',      label: 'Intercambios',   icon: ArrowLeftRight },
   { path: '/messages',    label: 'Mensajes',       icon: MessageCircle },
   { path: '/leaderboard', label: 'Ranking',        icon: Star },

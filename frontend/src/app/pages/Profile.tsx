@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router';
 import {
   Star, Clock, ArrowLeftRight, MapPin, MessageCircle,
   Pencil, Calendar, Tag, Plus, X, Loader2,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import Cropper from 'react-easy-crop';
+import type { Area } from 'react-easy-crop/types';
 import { CATEGORIES } from '../data/mockData';
 
 const BADGE_CONFIG = {
@@ -28,6 +30,13 @@ const EditProfileModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [maxTradeDistanceKm, setMaxTradeDistanceKm] = useState<number>(currentUser?.maxTradeDistanceKm ?? 100);
   const [tradeMyCityOnly, setTradeMyCityOnly] = useState<boolean>(currentUser?.tradeMyCityOnly ?? false);
   const [saving, setSaving]     = useState(false);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [removeAvatar, setRemoveAvatar] = useState(false);
+  const [showCropper, setShowCropper] = useState(false);
+  const [crop, setCrop] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const croppedAreaPixelsRef = useRef<Area | null>(null);
 
   const handleSave = async () => {
     setSaving(true);
@@ -36,9 +45,99 @@ const EditProfileModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       streetAddress, postalCode, shareExactLocation,
       searchRadiusKm, searchMyCityOnly,
       maxTradeDistanceKm, tradeMyCityOnly,
+      avatarFile,
+      removeAvatar,
     });
     setSaving(false);
     onClose();
+  };
+
+  const handleFileSelected = (f?: File | null) => {
+    if (!f) {
+      setAvatarFile(null);
+      setAvatarPreview(null);
+      return;
+    }
+    setAvatarFile(f);
+    setRemoveAvatar(false);
+    const url = URL.createObjectURL(f);
+    setAvatarPreview(url);
+    setShowCropper(true);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFileSelected(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleRemoveAvatar = () => {
+    setAvatarFile(null);
+    setAvatarPreview(null);
+    setRemoveAvatar(true);
+  };
+
+  useEffect(() => {
+    return () => {
+      // revoke preview URL on unmount to avoid leaks
+      if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+    };
+  }, [avatarPreview]);
+
+  const onCropComplete = useCallback((_: Area, croppedAreaPixels: Area) => {
+    croppedAreaPixelsRef.current = croppedAreaPixels;
+  }, []);
+
+  const createImage = (url: string) =>
+    new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => resolve(img);
+      img.onerror = (e) => reject(e);
+      img.src = url;
+    });
+
+  const getCroppedImg = useCallback(async (imageSrc: string, pixelCrop: Area) => {
+    const image = await createImage(imageSrc);
+    const canvas = document.createElement('canvas');
+    canvas.width = pixelCrop.width;
+    canvas.height = pixelCrop.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas not supported');
+
+    ctx.drawImage(
+      image,
+      pixelCrop.x,
+      pixelCrop.y,
+      pixelCrop.width,
+      pixelCrop.height,
+      0,
+      0,
+      pixelCrop.width,
+      pixelCrop.height,
+    );
+
+    return new Promise<Blob | null>((resolve) => canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.9));
+  }, []);
+
+  const applyCrop = async () => {
+    try {
+      if (!avatarPreview || !croppedAreaPixelsRef.current) return;
+      const blob = await getCroppedImg(avatarPreview, croppedAreaPixelsRef.current);
+      if (!blob) return;
+      const file = new File([blob], 'avatar.jpg', { type: 'image/jpeg' });
+      // revoke previous preview URL
+      if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+      const previewUrl = URL.createObjectURL(file);
+      setAvatarFile(file);
+      setAvatarPreview(previewUrl);
+      setShowCropper(false);
+      setZoom(1);
+      setCrop({ x: 0, y: 0 });
+    } catch (e) {
+      console.error('Crop error', e);
+    }
   };
 
   const handleUseBrowserLocation = async () => {
@@ -124,6 +223,42 @@ const EditProfileModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             <button onClick={handleUseBrowserLocation} className="px-3 py-2 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200">Usar mi ubicación actual</button>
             <div className="text-slate-500 text-sm">Esto guardará coordenadas privadas y rellenará ciudad/país si están disponibles.</div>
           </div>
+          <div>
+            <label className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Foto de perfil</label>
+            {showCropper && avatarPreview && (
+              <div className="p-3 bg-slate-50 rounded-xl mb-3">
+                <div style={{ position: 'relative', width: '100%', height: 320 }}>
+                  <Cropper
+                    image={avatarPreview}
+                    crop={crop}
+                    zoom={zoom}
+                    aspect={1}
+                    onCropChange={setCrop}
+                    onZoomChange={setZoom}
+                    onCropComplete={onCropComplete}
+                  />
+                </div>
+                <div className="flex items-center gap-2 mt-3">
+                  <input type="range" min={1} max={3} step={0.1} value={zoom} onChange={e => setZoom(Number(e.target.value))} />
+                  <button type="button" onClick={applyCrop} className="px-3 py-2 bg-teal-600 text-white rounded-xl">Recortar y usar</button>
+                  <button type="button" onClick={() => setShowCropper(false)} className="px-3 py-2 border rounded-xl">Cancelar</button>
+                </div>
+              </div>
+            )}
+            <div onDrop={handleDrop} onDragOver={e => e.preventDefault()} className="p-3 border border-dashed rounded-xl flex items-center gap-3">
+              <div className="w-16 h-16 rounded-xl overflow-hidden bg-slate-100 flex items-center justify-center">
+                <img src={avatarPreview || currentUser?.avatar} alt="avatar" className="w-full h-full object-cover" />
+              </div>
+              <div className="flex-1">
+                <input type="file" accept="image/*" onChange={e => handleFileSelected(e.target.files ? e.target.files[0] : undefined)} />
+                <div className="text-slate-500 text-sm">Arrastra una imagen o selecciónala. Se redimensionará automáticamente.</div>
+              </div>
+              <div>
+                <button type="button" onClick={handleRemoveAvatar} className="text-red-600">Eliminar</button>
+              </div>
+            </div>
+          </div>
+
           <div>
             <label className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Sobre mí</label>
             <textarea value={bio} onChange={e => setBio(e.target.value)} rows={4} placeholder="Cuéntanos algo sobre ti..." className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50 resize-none" style={{ fontSize: '0.875rem' }} />

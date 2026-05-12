@@ -5,8 +5,10 @@ import { useApp } from '../context/AppContext';
 import { CATEGORIES, Service } from '../data/mockData';
 
 const ServiceCard: React.FC<{ service: Service }> = ({ service }) => {
-  const { getUserById } = useApp();
+  const { getUserById, getUserReviews, trades } = useApp();
   const user = getUserById(service.userId);
+  const userReviews = getUserReviews(service.userId);
+  const completedOnService = trades.filter(t => t.serviceId === service.id && t.status === 'completed').length;
   const cat = CATEGORIES.find(c => c.id === service.category);
 
   return (
@@ -63,7 +65,7 @@ const ServiceCard: React.FC<{ service: Service }> = ({ service }) => {
             <div className="text-slate-700" style={{ fontSize: '0.8rem', fontWeight: 500 }}>{user?.name}</div>
             <div className="flex items-center gap-0.5">
               <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-              <span className="text-slate-400" style={{ fontSize: '0.7rem' }}>{user?.rating}</span>
+              <span className="text-slate-400" style={{ fontSize: '0.7rem' }}>{user?.rating} · {userReviews.length} · {completedOnService}/{user?.completedTrades ?? 0} intercambios</span>
             </div>
           </div>
         </div>

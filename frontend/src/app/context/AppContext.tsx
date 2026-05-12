@@ -5,6 +5,7 @@ import {
   User, Service, Trade, Message, Conversation, Review,
   API_CAT_TO_SLUG, SLUG_TO_API_CAT,
 } from '../data/mockData';
+import { BASE_URL } from '../api/client';
 import {
   apiLogin, apiLogout, apiRegister, apiGetMe, apiUpdateMe,
   apiGetUsers, apiGetUser,
@@ -27,7 +28,11 @@ const mapUser = (u: any): User => ({
   name: u.name || `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username,
   email: u.email || '',
   password: '',
-  avatar: u.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.username}&backgroundColor=b6e3f4`,
+  avatar: (() => {
+    const a = u.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.username}&backgroundColor=b6e3f4`;
+    if (typeof a === 'string' && a.startsWith('/')) return `${BASE_URL}${a}`;
+    return a;
+  })(),
   bio: u.bio || '',
   location: u.location || '',
   city: u.city || '',
@@ -127,7 +132,7 @@ interface AppContextType {
   login: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
   register: (name: string, email: string, password: string, username?: string) => Promise<boolean>;
-  updateProfile: (updates: Partial<User>) => void;
+  updateProfile: (updates: Partial<User> & { avatarFile?: File | null; removeAvatar?: boolean }) => void;
 
   // Data
   users: User[];
@@ -626,7 +631,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [loadInitialData]);
 
-  const updateProfile = useCallback(async (updates: Partial<User>) => {
+  const updateProfile = useCallback(async (updates: Partial<User> & { avatarFile?: File | null; removeAvatar?: boolean }) => {
     if (!currentUser) return;
     try {
       const payload: any = {};
@@ -650,8 +655,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if ((updates as any).searchMyCityOnly !== undefined) payload.search_my_city_only = (updates as any).searchMyCityOnly;
       if ((updates as any).maxTradeDistanceKm !== undefined) payload.max_trade_distance_km = (updates as any).maxTradeDistanceKm;
       if ((updates as any).tradeMyCityOnly !== undefined) payload.trade_my_city_only = (updates as any).tradeMyCityOnly;
-      // Update and refresh full profile from server to ensure latest fields
-      await apiUpdateMe(payload);
+      // If the caller provided a file (`avatarFile`), send as FormData so multipart is used
+      if ((updates as any).avatarFile) {
+        const fd = new FormData();
+        // append mapped fields
+        Object.keys(payload).forEach((k) => fd.append(k, (payload as any)[k] === undefined ? '' : String((payload as any)[k])));
+        fd.append('avatar_image', (updates as any).avatarFile);
+        await apiFetch('/api/auth/me/', { method: 'PATCH', body: fd });
+      } else {
+        // If removeAvatar is explicitly requested, allow JSON null for avatar_image
+        if ((updates as any).removeAvatar) {
+          payload.avatar_image = null;
+        }
+        await apiUpdateMe(payload);
+      }
       const meData = await apiGetMe();
       if (meData) {
         const updated = mapUser(meData);

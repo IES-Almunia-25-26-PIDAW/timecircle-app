@@ -13,7 +13,7 @@ export const ServiceDetail: React.FC = () => {
   const navigate = useNavigate();
   const {
     currentUser, getServiceById, getUserById, getUserReviews,
-    createTrade, startConversation, deleteService,
+    createTrade, startConversation, deleteService, trades,
   } = useApp();
 
   const [scheduledDate, setScheduledDate] = useState('');
@@ -39,6 +39,7 @@ export const ServiceDetail: React.FC = () => {
   const ownerReviews = getUserReviews(service.userId);
   const cat          = CATEGORIES.find(c => c.id === service.category);
   const isOwner      = currentUser?.id === service.userId;
+  const completedOnService = trades.filter(t => t.serviceId === service.id && t.status === 'completed').length;
   const ownerLat = owner?.latitude ?? null;
   const ownerLon = owner?.longitude ?? null;
   const canShowExact = owner && (owner.shareExactLocation || (currentUser && currentUser.id === owner.id) || currentUser?.isAdmin);
@@ -58,15 +59,46 @@ export const ServiceDetail: React.FC = () => {
       setBookError(`No tienes suficientes créditos. Necesitas ${proposedCredits}h y tienes ${currentUser.credits}h.`);
       return;
     }
+    // --- Frontend guard: prevent duplicate bookings for the same service ---
+    try {
+      const myTrades = trades.filter(t => (t.requesterId === currentUser?.id || t.offererId === currentUser?.id));
+      const sameService = myTrades.find(t => t.serviceId === service.id && ['pending','accepted','in_progress'].includes(t.status));
+      if (sameService) {
+        setBookError('Ya tienes una reserva activa para este servicio.');
+        return;
+      }
+      // --- Check for time overlap with existing appointments ---
+      const [y, m, d] = scheduledDate.split('-').map(Number);
+      const [hh, mm] = scheduledTime.split(':').map(Number);
+      const selected = new Date(y, m - 1, d, hh || 0, mm || 0);
+      const selectedEnd = new Date(selected.getTime() + (service.duration || 0) * 60000);
+
+      for (const t of myTrades) {
+        if (!t.scheduledDate) continue;
+        if (!['pending','accepted','in_progress'].includes(t.status)) continue;
+        const otherStart = new Date(t.scheduledDate);
+        const otherService = getServiceById(t.serviceId);
+        const otherDuration = otherService?.duration || 0;
+        const otherEnd = new Date(otherStart.getTime() + otherDuration * 60000);
+        // Overlap check: startA < endB && startB < endA
+        if (selected.getTime() < otherEnd.getTime() && otherStart.getTime() < selectedEnd.getTime()) {
+          setBookError('Tienes otra cita que se solapa en ese horario. Elige otra hora o fecha.');
+          return;
+        }
+      }
+    } catch (err) {
+      // If anything fails here, continue — server will validate too
+      console.warn('Booking pre-check failed', err);
+    }
     setBooking(true);
     // Validar que la fecha seleccionada sea al menos 1 día desde hoy
-    const [y, m, d] = scheduledDate.split('-').map(Number);
-    const [hh, mm] = scheduledTime.split(':').map(Number);
-    const selected = new Date(y, m - 1, d, hh || 0, mm || 0);
+    const [y2, m2, d2] = scheduledDate.split('-').map(Number);
+    const [hh2, mm2] = scheduledTime.split(':').map(Number);
+    const selected2 = new Date(y2, m2 - 1, d2, hh2 || 0, mm2 || 0);
     const now = new Date();
     const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const minAllowed = new Date(todayMidnight.getTime() + 24 * 60 * 60 * 1000); // mañana 00:00
-    if (selected.getTime() < minAllowed.getTime()) {
+    if (selected2.getTime() < minAllowed.getTime()) {
       const msg = 'La fecha no puede ser anterior a hoy ni con menos de 1 día de antelación.';
       setBookError(msg);
       setBooking(false);
@@ -78,7 +110,7 @@ export const ServiceDetail: React.FC = () => {
         offererId:     service.type === 'offer' ? service.userId : currentUser!.id,
         requesterId:   service.type === 'offer' ? currentUser!.id : service.userId,
         status:        'pending',
-        scheduledDate: selected.toISOString(),
+        scheduledDate: selected2.toISOString(),
         creditsAmount: proposedCredits,
         notes,
       });
@@ -103,7 +135,7 @@ export const ServiceDetail: React.FC = () => {
   };
 
   const handleDelete = async () => {
-    if (window.confirm('¿Eliminar este servicio?')) {
+    if (globalThis.confirm('¿Eliminar este servicio?')) {
       await deleteService(service.id);
       navigate('/services');
     }
@@ -172,6 +204,17 @@ export const ServiceDetail: React.FC = () => {
               </div>
             )}
 
+            {/* Wider provider map (moved to main for more horizontal space) */}
+            {(hasExactLocation || owner?.city) && (
+              <div className="mb-5">
+                <h3 className="text-slate-700 mb-2" style={{ fontWeight: 600, fontSize: '0.9rem' }}>Ubicación del proveedor</h3>
+                <div style={{ height: 320, width: '100%' }}>
+                  <ProfileMap lat={Number(ownerLat)} lon={Number(ownerLon)} zoom={12} />
+                </div>
+                <div className="text-slate-500 text-sm mt-2">Se muestra la ubicación guardada en el perfil del proveedor.</div>
+              </div>
+            )}
+
             {isOwner && (
               <div className="mt-5 pt-5 border-t border-slate-100 flex gap-2">
                 <button
@@ -226,6 +269,13 @@ export const ServiceDetail: React.FC = () => {
                 })}
               </div>
             </div>
+          ) || (
+            <div className="bg-white border border-slate-100 rounded-2xl p-6 text-center">
+              <h4 className="text-slate-900 mb-4" style={{ fontSize: '1rem', fontWeight: 600 }}>Sin valoraciones</h4>
+              <p className="text-slate-700" style={{ fontSize: '0.8rem' }}>
+                Aún no hay valoraciones para este proveedor. ¡Sé el primero!
+              </p>
+            </div>
           )}
         </div>
 
@@ -257,26 +307,18 @@ export const ServiceDetail: React.FC = () => {
                 </div>
                 <div className="flex items-center gap-2">
                   <CheckCircle className="w-3.5 h-3.5 text-green-500" />
-                  {owner.completedTrades} intercambios completados
+                  <div className="text-slate-600" style={{ fontSize: '0.8rem' }}>
+                    {completedOnService + ' ' + (completedOnService === 1 ? 'intercambio' : 'intercambios')} · {owner.completedTrades} en total
+                  </div>
                 </div>
               </div>
             )}
 
             {/* Provider location from the profile (not viewer live location) */}
-            {hasExactLocation ? (
-              <div className="bg-white border border-slate-100 rounded-2xl p-3">
-                <h4 className="text-slate-700 mb-2" style={{ fontSize: '0.9rem', fontWeight: 600 }}>Ubicación del proveedor</h4>
-                <div style={{ height: 320 }}>
-                  <ProfileMap lat={Number(ownerLat)} lon={Number(ownerLon)} zoom={13} />
-                </div>
-                <div className="text-slate-500 text-sm mt-2">Se muestra la ubicación guardada en el perfil del proveedor.</div>
-              </div>
-            ) : (
-              <div className="bg-white border border-slate-100 rounded-2xl p-3">
-                <h4 className="text-slate-700 mb-2" style={{ fontSize: '0.9rem', fontWeight: 600 }}>Ubicación del proveedor</h4>
-                <div className="text-slate-500 text-sm mt-2">{owner?.city ? `${owner.city}${owner.country ? ', ' + owner.country : ''}` : 'Ubicación no disponible'}</div>
-              </div>
-            )}
+            <div className="bg-white border border-slate-100 rounded-2xl p-3">
+              <h4 className="text-slate-700 mb-2" style={{ fontSize: '0.9rem', fontWeight: 600 }}>Ubicación del proveedor</h4>
+              <div className="text-slate-500 text-sm mt-2">{owner?.city ? `${owner.city}${owner.country ? ', ' + owner.country : ''}` : 'Ubicación no disponible'}</div>
+            </div>
 
             {!isOwner && (
               <div className="space-y-2">

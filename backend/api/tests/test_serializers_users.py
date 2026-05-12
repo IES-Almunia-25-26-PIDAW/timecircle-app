@@ -25,6 +25,10 @@ from api.serializers import (
     AdminUserSerializer,
     AdminUserUpdateSerializer,
 )
+from django.core.files.uploadedfile import SimpleUploadedFile
+import io
+from PIL import Image
+from django.test import override_settings
 from .factories import make_user, make_skill, make_completed_trade, make_review
 
 
@@ -395,6 +399,64 @@ class UserSkillSerializerTests(TestCase):
         us    = UserSkill.objects.create(user=user, skill=skill)
         data  = UserSkillSerializer(us).data
         self.assertEqual(data["skill"]["name"], "Pintura")
+
+
+@override_settings(STORAGES={
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage'
+    }
+})
+class AvatarImageTests(TestCase):
+    """Tests for avatar_image upload, validation and removal.
+
+    Uses a local FileSystemStorage backend so tests can save files without
+    requiring external storage configuration.
+    """
+
+    def setUp(self):
+        self.user = make_user()
+
+    def _make_image_file(self, fmt='PNG', size=(100, 100), color=(255, 0, 0)):
+        f = io.BytesIO()
+        img = Image.new('RGB', size, color=color)
+        img.save(f, fmt)
+        f.seek(0)
+        return SimpleUploadedFile('avatar.' + fmt.lower(), f.read(), content_type=f'image/{fmt.lower()}')
+
+    def test_avatar_image_upload_and_saved(self):
+        img_file = self._make_image_file()
+        s = UserUpdateSerializer(self.user, data={'avatar_image': img_file}, partial=True)
+        self.assertTrue(s.is_valid(), s.errors)
+        user = s.save()
+        user.refresh_from_db()
+        self.assertTrue(bool(user.avatar_image), 'avatar_image should be set on user')
+
+    def test_avatar_image_validate_size_and_type(self):
+        # Create a fake large file object by setting size attribute large
+        class FakeFile:
+            def __init__(self):
+                self.size = 6 * 1024 * 1024
+                self.content_type = 'image/jpeg'
+
+        s = UserUpdateSerializer()
+        with self.assertRaises(Exception):
+            s.validate_avatar_image(FakeFile())
+
+    def test_avatar_image_removal_via_null(self):
+        # First set an avatar
+        img_file = self._make_image_file()
+        s = UserUpdateSerializer(self.user, data={'avatar_image': img_file}, partial=True)
+        self.assertTrue(s.is_valid(), s.errors)
+        user = s.save()
+        user.refresh_from_db()
+        self.assertTrue(bool(user.avatar_image))
+
+        # Now remove it
+        s2 = UserUpdateSerializer(user, data={'avatar_image': None}, partial=True)
+        self.assertTrue(s2.is_valid(), s2.errors)
+        user2 = s2.save()
+        user2.refresh_from_db()
+        self.assertFalse(bool(user2.avatar_image))
 
 
 # ══════════════════════════════════════════════

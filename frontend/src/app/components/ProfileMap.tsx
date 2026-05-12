@@ -59,7 +59,7 @@ const ProfileMap: React.FC<ProfileMapProps> = ({ lat, lon, zoom = 13, height = 3
     }
   }, [lat, lon, zoom]);
 
-  return <div ref={elRef} style={{ width: '100%', height }} />;
+  return <div ref={elRef} style={{ width: '100%', height, borderRadius: 12, overflow: 'hidden' }} />;
 };
 
 export default ProfileMap;

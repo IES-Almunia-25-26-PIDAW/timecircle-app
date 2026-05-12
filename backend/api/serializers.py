@@ -78,6 +78,7 @@ class UserSerializer(serializers.ModelSerializer):
     """Serializer de lectura con todos los campos públicos del usuario."""
 
     name         = serializers.SerializerMethodField()
+    avatar       = serializers.SerializerMethodField()
     skills       = serializers.SerializerMethodField()
     member_since = serializers.DateTimeField(source='date_joined', read_only=True)
     is_admin     = serializers.BooleanField(source='is_staff', read_only=True)
@@ -102,6 +103,16 @@ class UserSerializer(serializers.ModelSerializer):
 
     def get_name(self, obj: User) -> str:
         return obj.get_full_name() or obj.username
+
+    def get_avatar(self, obj: User) -> str:
+        # Prefer uploaded image if present, fall back to stored URL
+        try:
+            if getattr(obj, 'avatar_image', None):
+                if obj.avatar_image and hasattr(obj.avatar_image, 'url'):
+                    return obj.avatar_image.url
+        except Exception:
+            pass
+        return obj.avatar or ''
 
     def get_skills(self, obj: User) -> list[str]:
         return list(
@@ -143,12 +154,26 @@ class UserUpdateSerializer(serializers.ModelSerializer):
         model  = User
         fields = [
             'first_name', 'last_name', 'avatar', 'bio', 'location',
+            'avatar_image',
             'city', 'country', 'latitude', 'longitude',
             'street_address', 'postal_code', 'share_exact_location',
             'search_radius_km', 'search_my_city_only',
             'max_trade_distance_km', 'trade_my_city_only',
         ]
 
+    avatar_image = serializers.ImageField(required=False, allow_null=True)
+
+    def validate_avatar_image(self, value):
+        if value is None:
+            return None
+        max_size = 5 * 1024 * 1024  # 5 MB
+        if getattr(value, 'size', 0) > max_size:
+            raise serializers.ValidationError('El archivo es demasiado grande (máx. 5 MB).')
+        content_type = getattr(value, 'content_type', '')
+        allowed = ('image/png', 'image/jpeg', 'image/webp')
+        if content_type and content_type not in allowed:
+            raise serializers.ValidationError('Formato de imagen no soportado. Usa PNG/JPEG/WEBP.')
+        return value
     def validate_avatar(self, value: str) -> str:
         if value and not value.startswith(('http://', 'https://')):
             raise serializers.ValidationError('El avatar debe ser una URL válida (http/https).')
@@ -186,11 +211,40 @@ class UserUpdateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('El código postal es demasiado largo.')
         return val
 
+    def update(self, instance: User, validated_data: dict) -> User:
+        # Handle avatar_image specially: allow upload or explicit removal (null)
+        avatar_provided = 'avatar_image' in validated_data
+        avatar_value = validated_data.pop('avatar_image', serializers.empty)
+
+        # If avatar_image explicitly provided as None -> remove existing image
+        if avatar_provided and avatar_value is None:
+            try:
+                instance.avatar_image.delete(save=False)
+            except Exception:
+                pass
+            instance.avatar_image = None
+
+        # If avatar_image is a file, assign it
+        elif avatar_provided and avatar_value is not serializers.empty and avatar_value is not None:
+            instance.avatar_image = avatar_value
+
+        # If avatar URL provided as empty string, clear it
+        if 'avatar' in validated_data and validated_data['avatar'] == '':
+            instance.avatar = ''
+
+        # Update remaining fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        instance.save()
+        return instance
+
 
 class MeSerializer(serializers.ModelSerializer):
     """Serializer para el propio usuario: incluye campos de ubicación y preferencias."""
 
     name = serializers.SerializerMethodField()
+    avatar = serializers.SerializerMethodField()
     member_since = serializers.DateTimeField(source='date_joined', read_only=True)
     skills = serializers.SerializerMethodField()
     is_admin = serializers.BooleanField(source='is_staff', read_only=True)
@@ -216,6 +270,15 @@ class MeSerializer(serializers.ModelSerializer):
 
     def get_skills(self, obj: User) -> list[str]:
         return list(obj.user_skills.select_related('skill').values_list('skill__name', flat=True))
+
+    def get_avatar(self, obj: User) -> str:
+        try:
+            if getattr(obj, 'avatar_image', None):
+                if obj.avatar_image and hasattr(obj.avatar_image, 'url'):
+                    return obj.avatar_image.url
+        except Exception:
+            pass
+        return obj.avatar or ''
 
 
 class UserRankingSerializer(serializers.ModelSerializer):

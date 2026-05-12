@@ -36,6 +36,7 @@ export interface User {
 export interface Service {
   id: string;
   userId: string;
+  user?: User;
   type: 'offer' | 'request';
   title: string;
   description: string;

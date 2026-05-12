@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Solicitud de reserva</title>
+</head>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#0f172a;margin:0;padding:0;background:#f3f4f6;">
+  <table width="100%" cellpadding="0" cellspacing="0">
+    <tr><td align="center" style="padding:24px;">
+      <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;">
+        <tr>
+          <td style="background:linear-gradient(90deg,#059669,#0ea5a5);padding:20px;color:#fff;">
+            <h1 style="margin:0;font-size:18px;">TimeCircle</h1>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:20px;color:#0f172a;">
+            <p style="font-size:16px;margin:0 0 12px;">Hola {{ owner.get_full_name|default:owner.username }},</p>
+            <p style="font-size:15px;margin:0 0 12px;">Has recibido una nueva solicitud de reserva para tu servicio <strong>{{ service.title }}</strong>.</p>
+            <!-- Booker card: picture, name, date/time and credits -->
+            <div style="margin:12px 0;padding:12px;border:1px solid #eef2f7;border-radius:10px;display:flex;align-items:center;gap:12px;">
+              <div style="flex:0 0 56px;">
+                {% if booker_avatar %}
+                  <img src="{{ booker_avatar }}" alt="{{ booker.get_full_name|default:booker.username }}" style="width:56px;height:56px;border-radius:8px;object-fit:cover;display:block;" />
+                {% else %}
+                  <div style="width:56px;height:56px;border-radius:8px;background:#f3f4f6;display:flex;align-items:center;justify-content:center;color:#9ca3af;">👤</div>
+                {% endif %}
+              </div>
+              <div style="flex:1;min-width:0;">
+                <div style="font-weight:700;font-size:15px;">{{ booker.get_full_name|default:booker.username }}</div>
+                <div style="color:#6b7280;font-size:13px;margin-top:4px;">{{ trade_date }} · {{ trade_time }}</div>
+                <div style="margin-top:8px;font-size:14px;color:#0f172a;"><strong>{{ trade.credits_amount }}</strong> créditos</div>
+              </div>
+            </div>
+            {% if service_url %}
+              <p style="margin:8px 0 0;"><a href="{{ service_url }}" style="background:#059669;color:#fff;padding:10px 14px;border-radius:8px;text-decoration:none;display:inline-block;">Ver servicio</a></p>
+            {% endif %}
+            <hr style="border:none;border-top:1px solid #eef2f7;margin:18px 0;">
+            <p style="font-size:13px;color:#94a3b8;margin:0;">Si no reconoces esta acción, inicia sesión en la aplicación y revisa la sección de Intercambios.</p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>

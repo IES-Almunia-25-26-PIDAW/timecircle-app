@@ -29,10 +29,11 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
   const { access, refresh } = getTokens();
 
   const makeRequest = async (token: string | null) => {
+    const isForm = options.body instanceof FormData;
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
       ...(options.headers as Record<string, string> || {}),
     };
+    if (!isForm) headers['Content-Type'] = 'application/json';
     if (token) headers['Authorization'] = `Bearer ${token}`;
     return fetch(`${BASE_URL}${path}`, { ...options, headers });
   };

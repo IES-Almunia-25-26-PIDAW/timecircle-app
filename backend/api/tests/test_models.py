@@ -49,7 +49,7 @@ class UserModelTests(TestCase):
         self.assertEqual(float(self.user.rating), 0.00)
 
     def test_default_badge_is_none(self):
-        self.assertEqual(self.user.badge, '')
+        self.assertEqual(self.user.badge, User.Badge.NONE)
 
     # ── __str__ ─────────────────────────────
 
@@ -90,7 +90,7 @@ class UserModelTests(TestCase):
         self.user.save()
         self.user.update_badge()
         self.user.refresh_from_db()
-        self.assertIsNone(self.user.badge)
+        self.assertEqual(self.user.badge, User.Badge.NONE)
 
     # ── update_rating ─────────────────────────
 

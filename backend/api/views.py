@@ -1,5 +1,6 @@
 import decimal
 from rest_framework import viewsets, status, generics, filters
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
@@ -22,7 +23,10 @@ from asgiref.sync import async_to_sync
 from django.core import signing
 import secrets
 from django.conf import settings
+from PIL import Image
 from django.core.mail import send_mail
+from django.template.loader import render_to_string
+from django.utils.html import strip_tags
 
 from .models import (
     User, Category, Tag, Skill, Service, Trade, Transaction,
@@ -120,6 +124,7 @@ class RegisterView(generics.CreateAPIView):
 class MeView(generics.GenericAPIView):
     """Perfil del usuario autenticado (GET) y actualización parcial (PATCH/PUT)."""
     permission_classes = [IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
 
     @extend_schema(
         summary='Obtener perfil propio',
@@ -140,6 +145,34 @@ class MeView(generics.GenericAPIView):
         serializer = UserUpdateSerializer(request.user, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
+
+        # Image processing: if an avatar_image was uploaded, resize/center-crop to 512x512
+        try:
+            avatar_file = request.FILES.get('avatar_image')
+            if avatar_file and getattr(user, 'avatar_image', None) and hasattr(user.avatar_image, 'path'):
+                path = user.avatar_image.path
+                try:
+                    img = Image.open(path)
+                    img = img.convert('RGBA') if img.mode in ('RGBA', 'LA') else img.convert('RGB')
+                    # center-crop to square
+                    w, h = img.size
+                    min_side = min(w, h)
+                    left = (w - min_side) // 2
+                    top = (h - min_side) // 2
+                    right = left + min_side
+                    bottom = top + min_side
+                    img = img.crop((left, top, right, bottom))
+                    img = img.resize((512, 512), Image.LANCZOS)
+                    # save in place, keep format based on original
+                    fmt = 'JPEG'
+                    if img.mode == 'RGBA':
+                        fmt = 'PNG'
+                    img.save(path, format=fmt, quality=90)
+                except Exception:
+                    # Don't block profile update if image processing fails
+                    pass
+        except Exception:
+            pass
 
         # Si se han enviado coordenadas, intentar resolver ciudad/país automáticamente
         lat = request.data.get('latitude')
@@ -761,6 +794,48 @@ class TradeViewSet(viewsets.ModelViewSet):
             content='Nueva solicitud de intercambio',
             message=trade.notes,
         )
+        # Send email notification to the service owner about the new booking
+        try:
+            service = trade.service
+            owner = service.user
+            if owner and owner.email:
+                from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', None) or settings.EMAIL_HOST_USER or 'no-reply@timecircle.app'
+                subject = f"TimeCircle — Nueva solicitud para '{service.title}'"
+                frontend = getattr(settings, 'FRONTEND_URL', '').rstrip('/')
+                service_url = f"{frontend}/services/{service.id}" if frontend else ''
+                # Prepare formatted values for template
+                trade_dt = getattr(trade, 'scheduled_date', None)
+                trade_date = trade_dt.strftime('%d/%m/%Y') if trade_dt else ''
+                trade_time = trade_dt.strftime('%H:%M') if trade_dt else ''
+                # Determine booker avatar URL preference: uploaded image first
+                booker = request.user
+                try:
+                    if getattr(booker, 'avatar_image', None):
+                        booker_avatar = booker.avatar_image.url
+                    else:
+                        booker_avatar = booker.avatar or ''
+                except Exception:
+                    booker_avatar = booker.avatar or ''
+
+                ctx = {
+                    'owner': owner,
+                    'service': service,
+                    'booker': booker,
+                    'trade': trade,
+                    'service_url': service_url,
+                    'trade_date': trade_date,
+                    'trade_time': trade_time,
+                    'booker_avatar': booker_avatar,
+                }
+                try:
+                    html_message = render_to_string('emails/trade_booking.html', ctx)
+                    plain = strip_tags(html_message)
+                    send_mail(subject, plain, from_email, [owner.email], fail_silently=False, html_message=html_message)
+                except Exception:
+                    # Do not block API response if email sending fails
+                    pass
+        except Exception:
+            pass
         return Response(
             {
                 'trade': TradeSerializer(trade, context={'request': request}).data,
@@ -769,6 +844,69 @@ class TradeViewSet(viewsets.ModelViewSet):
             },
             status=status.HTTP_201_CREATED,
         )
+
+    def _send_trade_notification(self, trade, actor, action_label='modified'):
+        """Notify the other participant about a change to the trade.
+
+        action_label: 'modified' | 'cancelled' | 'created' (affects subject)
+        """
+        try:
+            service = trade.service
+            owner = service.user
+            # Determine recipient: the other participant
+            if actor == owner:
+                recipient = trade.requester
+            else:
+                recipient = owner
+
+            if not recipient or not recipient.email:
+                return
+
+            from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', None) or settings.EMAIL_HOST_USER or 'no-reply@timecircle.app'
+            title = service.title if service else ''
+            if action_label == 'cancelled':
+                subject = f"TimeCircle — Reserva cancelada para '{title}'"
+            elif action_label == 'modified':
+                subject = f"TimeCircle — Cambio en la solicitud para '{title}'"
+            else:
+                subject = f"TimeCircle — Actualización sobre '{title}'"
+
+            frontend = getattr(settings, 'FRONTEND_URL', '').rstrip('/')
+            service_url = f"{frontend}/services/{service.id}" if frontend and service else ''
+
+            trade_dt = getattr(trade, 'scheduled_date', None)
+            trade_date = trade_dt.strftime('%d/%m/%Y') if trade_dt else ''
+            trade_time = trade_dt.strftime('%H:%M') if trade_dt else ''
+
+            # booker is the requester (user who created the booking)
+            booker = trade.requester
+            try:
+                if getattr(booker, 'avatar_image', None):
+                    booker_avatar = booker.avatar_image.url
+                else:
+                    booker_avatar = booker.avatar or ''
+            except Exception:
+                booker_avatar = getattr(booker, 'avatar', '') or ''
+
+            ctx = {
+                'owner': owner,
+                'service': service,
+                'booker': booker,
+                'trade': trade,
+                'service_url': service_url,
+                'trade_date': trade_date,
+                'trade_time': trade_time,
+                'booker_avatar': booker_avatar,
+                'action_label': action_label,
+            }
+            try:
+                html_message = render_to_string('emails/trade_booking.html', ctx)
+                plain = strip_tags(html_message)
+                send_mail(subject, plain, from_email, [recipient.email], fail_silently=False, html_message=html_message)
+            except Exception:
+                pass
+        except Exception:
+            pass
 
     @extend_schema(
         tags=['Trades'],
@@ -806,6 +944,12 @@ class TradeViewSet(viewsets.ModelViewSet):
         )
         serializer.is_valid(raise_exception=True)
         trade = serializer.save()
+        # If trade was cancelled, notify the other participant
+        try:
+            if getattr(trade, 'status', None) == 'cancelled':
+                self._send_trade_notification(trade, request.user, action_label='cancelled')
+        except Exception:
+            pass
         return Response(TradeSerializer(trade, context={'request': request}).data)
 
     @extend_schema(
@@ -833,6 +977,11 @@ class TradeViewSet(viewsets.ModelViewSet):
         )
         serializer.is_valid(raise_exception=True)
         trade = serializer.save()
+        # Notify the other participant that the trade was modified (negotiation)
+        try:
+            self._send_trade_notification(trade, request.user, action_label='modified')
+        except Exception:
+            pass
         return Response(TradeSerializer(trade, context={'request': request}).data)
 
 
@@ -962,6 +1111,36 @@ class ReviewViewSet(viewsets.ModelViewSet):
             qs = qs.filter(reviewer_id=int(reviewer_id))
 
         return qs.order_by('-created_at')
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        review = serializer.save()
+
+        # Notify the reviewee by email
+        try:
+            reviewee = review.reviewee
+            if reviewee and reviewee.email:
+                from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', None) or settings.EMAIL_HOST_USER or 'no-reply@timecircle.app'
+                subject = f"TimeCircle — Nueva valoración de {request.user.get_full_name() or request.user.username}"
+                frontend = getattr(settings, 'FRONTEND_URL', '').rstrip('/')
+                trade_url = f"{frontend}/services/{review.trade.service.id}" if frontend and getattr(review.trade, 'service', None) else ''
+                ctx = {
+                    'reviewee': reviewee,
+                    'reviewer': request.user,
+                    'review': review,
+                    'trade_url': trade_url,
+                }
+                try:
+                    html_message = render_to_string('emails/review_notification.html', ctx)
+                    plain = strip_tags(html_message)
+                    send_mail(subject, plain, from_email, [reviewee.email], fail_silently=False, html_message=html_message)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        return Response(ReviewSerializer(review, context={'request': request}).data, status=status.HTTP_201_CREATED)
 
 
 # ══════════════════════════════════════════════════════════
