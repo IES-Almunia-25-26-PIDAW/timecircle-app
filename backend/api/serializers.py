@@ -281,8 +281,8 @@ class MeSerializer(serializers.ModelSerializer):
             if getattr(obj, 'avatar_image', None):
                 if obj.avatar_image and hasattr(obj.avatar_image, 'url'):
                     return obj.avatar_image.url
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Unable to resolve avatar_image.url for user %s: %s", obj.pk, exc)
         return obj.avatar or ''
 
 
