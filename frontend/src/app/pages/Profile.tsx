@@ -58,11 +58,31 @@ const EditProfileModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       setAvatarPreview(null);
       return;
     }
+    if (!f.type || !f.type.startsWith('image/')) {
+      setAvatarFile(null);
+      setAvatarPreview(null);
+      return;
+    }
     setAvatarFile(f);
     setRemoveAvatar(false);
     const url = URL.createObjectURL(f);
     setAvatarPreview(url);
     setShowCropper(true);
+  };
+
+  const getSafeImageSrc = (src?: string | null): string => {
+    if (!src) return '';
+    if (src.startsWith('blob:')) return src;
+    if (src.startsWith('data:image/')) return src;
+    try {
+      const parsed = new URL(src, window.location.origin);
+      if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+        return parsed.href;
+      }
+    } catch {
+      return '';
+    }
+    return '';
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -256,7 +276,7 @@ const EditProfileModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 className="flex-1 flex items-center gap-3 bg-transparent border-0 p-0"
               >
                 <div className="w-16 h-16 rounded-xl overflow-hidden bg-slate-100 flex items-center justify-center">
-                  <img src={avatarPreview || currentUser?.avatar} alt="avatar" className="w-full h-full object-cover" />
+                  <img src={getSafeImageSrc(avatarPreview || currentUser?.avatar)} alt="avatar" className="w-full h-full object-cover" />
                 </div>
                 <div className="flex-1 text-left">
                   <div className="text-slate-500 text-sm">Arrastra una imagen o selecciónala. Se redimensionará automáticamente.</div>
