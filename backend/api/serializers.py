@@ -1,5 +1,6 @@
 import decimal
 import math
+import logging
 from typing import Optional
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
@@ -13,6 +14,7 @@ from .models import (
 )
 
 NOT_PARTICIPANT_ERROR = 'No eres participante de este intercambio.'
+logger = logging.getLogger(__name__)
 
 # ══════════════════════════════════════════════════════════
 #  HABILIDADES  /  TAGS  /  CATEGORÍAS
@@ -224,7 +226,7 @@ class UserUpdateSerializer(serializers.ModelSerializer):
             try:
                 instance.avatar_image.delete(save=False)
             except Exception:
-                pass
+                logger.exception("Failed to delete previous avatar_image for user_id=%s", instance.pk)
             instance.avatar_image = None
 
         # If avatar_image is a file, assign it
