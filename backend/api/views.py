@@ -1045,7 +1045,11 @@ class TradeViewSet(viewsets.ModelViewSet):
         try:
             self._send_trade_notification(trade, request.user, action_label='modified')
         except Exception:
-            pass
+            logger.exception(
+                "Failed to send trade notification in start_request (trade_id=%s, user_id=%s)",
+                trade.id,
+                request.user.id,
+            )
 
         return Response(TradeSerializer(trade, context={'request': request}).data)
 
