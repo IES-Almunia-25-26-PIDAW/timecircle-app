@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router';
 import {
-  Clock, ArrowUp, ArrowDown, Star, Calendar,
-  Filter, TrendingUp, History as HistoryIcon
+  ArrowUp, ArrowDown, Star,
+  TrendingUp, History as HistoryIcon
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { CATEGORIES, type Trade } from '../data/mockData';
 
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
@@ -51,7 +50,7 @@ const getLastSixMonthsActivity = (trades: Trade[], userId: string) => {
 };
 
 export const History: React.FC = () => {
-  const { currentUser, getUserTrades, getServiceById, getUserById, getUserReviews, services } = useApp();
+  const { currentUser, getUserTrades, getServiceById, getUserById, getUserReviews } = useApp();
   const [filter, setFilter] = useState<'all' | 'given' | 'received'>('all');
 
   if (!currentUser) return null;
@@ -83,9 +82,6 @@ export const History: React.FC = () => {
     }).length;
     return { name: cat.label, value: count, icon: cat.icon };
   }).filter(d => d.value > 0);
-
-  // My services category distribution
-  const myServices = services.filter(s => s.userId === currentUser.id);
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">

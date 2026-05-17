@@ -1,5 +1,7 @@
 import decimal
+import logging
 from rest_framework import viewsets, status, generics, filters
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
@@ -22,7 +24,10 @@ from asgiref.sync import async_to_sync
 from django.core import signing
 import secrets
 from django.conf import settings
+from PIL import Image
 from django.core.mail import send_mail
+from django.template.loader import render_to_string
+from django.utils.html import strip_tags
 
 from .models import (
     User, Category, Tag, Skill, Service, Trade, Transaction,
@@ -44,6 +49,10 @@ from .serializers import (
 )
 from .utils_geo import reverse_geocode
 
+logger = logging.getLogger(__name__)
+
+DEFAULT_EMAIL = 'no-reply@timecircle.app'
+NOT_PARTICIPANT_ERROR = 'No eres participante de este intercambio.'
 
 # ── Custom Throttles for presence ────────────────────────
 class PresenceThrottle(UserRateThrottle):
@@ -120,6 +129,7 @@ class RegisterView(generics.CreateAPIView):
 class MeView(generics.GenericAPIView):
     """Perfil del usuario autenticado (GET) y actualización parcial (PATCH/PUT)."""
     permission_classes = [IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
 
     @extend_schema(
         summary='Obtener perfil propio',
@@ -141,32 +151,64 @@ class MeView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
 
-        # Si se han enviado coordenadas, intentar resolver ciudad/país automáticamente
+        # If an avatar was uploaded, resize/center-crop to 512x512 (non-blocking).
+        avatar_file = request.FILES.get('avatar_image')
+        if avatar_file and getattr(user, 'avatar_image', None) and hasattr(user.avatar_image, 'path'):
+            try:
+                self._process_avatar_image(user.avatar_image.path)
+            except Exception:
+                # Don't block profile update if image processing fails
+                pass
+
+        # If coordinates were provided, try to resolve city/country (non-blocking)
         lat = request.data.get('latitude')
         lon = request.data.get('longitude')
-        try:
-            if lat is not None and lon is not None:
-                city, country, street, postal_code = reverse_geocode(float(lat), float(lon))
-                update_fields = []
-                if city:
-                    user.city = city
-                    update_fields.append('city')
-                if country:
-                    user.country = country
-                    update_fields.append('country')
-                # If reverse geocoding provides a street/postal, save them as optional
-                if street:
-                    user.street_address = street
-                    update_fields.append('street_address')
-                if postal_code:
-                    user.postal_code = postal_code
-                    update_fields.append('postal_code')
-                if update_fields:
-                    user.save(update_fields=update_fields)
-        except Exception:
-            # Do not let geocoding failures block profile updates
-            pass
+        if lat is not None and lon is not None:
+            try:
+                self._update_location_from_coords(user, lat, lon)
+            except Exception:
+                # Do not let geocoding failures block profile updates
+                pass
+
         return Response(MeSerializer(user, context={'request': request}).data)
+
+    def _process_avatar_image(self, path):
+        """Resize and center-crop an avatar image to 512x512 and save in place."""
+        img = Image.open(path)
+        img = img.convert('RGBA') if img.mode in ('RGBA', 'LA') else img.convert('RGB')
+        # center-crop to square
+        w, h = img.size
+        min_side = min(w, h)
+        left = (w - min_side) // 2
+        top = (h - min_side) // 2
+        right = left + min_side
+        bottom = top + min_side
+        img = img.crop((left, top, right, bottom))
+        img = img.resize((512, 512), Image.LANCZOS)
+        # save in place, keep format based on original
+        fmt = 'JPEG'
+        if img.mode == 'RGBA':
+            fmt = 'PNG'
+        img.save(path, format=fmt, quality=90)
+
+    def _update_location_from_coords(self, user, lat, lon):
+        """Reverse-geocode coordinates and persist returned fields on the user."""
+        city, country, street, postal_code = reverse_geocode(float(lat), float(lon))
+        update_fields = []
+        if city:
+            user.city = city
+            update_fields.append('city')
+        if country:
+            user.country = country
+            update_fields.append('country')
+        if street:
+            user.street_address = street
+            update_fields.append('street_address')
+        if postal_code:
+            user.postal_code = postal_code
+            update_fields.append('postal_code')
+        if update_fields:
+            user.save(update_fields=update_fields)
 
     def put(self, request):
         return self.patch(request)
@@ -300,7 +342,7 @@ class RequestPasswordResetView(generics.GenericAPIView):
         </body>
         </html>
         """
-        from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', None) or settings.EMAIL_HOST_USER or 'no-reply@timecircle.app'
+        from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', None) or settings.EMAIL_HOST_USER or DEFAULT_EMAIL
         try:
             send_mail(subject, message, from_email, [user.email], fail_silently=False, html_message=html_message)
         except Exception:
@@ -761,6 +803,16 @@ class TradeViewSet(viewsets.ModelViewSet):
             content='Nueva solicitud de intercambio',
             message=trade.notes,
         )
+        # Send email notification to the service owner about the new booking (non-blocking)
+        try:
+            self._notify_owner_of_new_trade(trade, request.user)
+        except Exception:
+            # Keep trade creation successful even if notification delivery fails.
+            logger.exception(
+                "Failed to send new trade notification (trade_id=%s, actor_id=%s)",
+                getattr(trade, 'id', None),
+                getattr(request.user, 'id', None),
+            )
         return Response(
             {
                 'trade': TradeSerializer(trade, context={'request': request}).data,
@@ -769,6 +821,119 @@ class TradeViewSet(viewsets.ModelViewSet):
             },
             status=status.HTTP_201_CREATED,
         )
+
+    def _notify_owner_of_new_trade(self, trade, booker):
+        """Render and send the trade booking email to the service owner.
+
+        Non-blocking: swallow exceptions so API response is unaffected by email errors.
+        """
+        try:
+            service = trade.service
+            owner = service.user
+            if not owner or not owner.email:
+                return
+
+            from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', None) or settings.EMAIL_HOST_USER or DEFAULT_EMAIL
+            subject = f"TimeCircle — Nueva solicitud para '{service.title}'"
+            frontend = getattr(settings, 'FRONTEND_URL', '').rstrip('/')
+            service_url = f"{frontend}/services/{service.id}" if frontend else ''
+
+            trade_dt = getattr(trade, 'scheduled_date', None)
+            trade_date = trade_dt.strftime('%d/%m/%Y') if trade_dt else ''
+            trade_time = trade_dt.strftime('%H:%M') if trade_dt else ''
+
+            try:
+                if getattr(booker, 'avatar_image', None):
+                    booker_avatar = booker.avatar_image.url
+                else:
+                    booker_avatar = booker.avatar or ''
+            except Exception:
+                booker_avatar = getattr(booker, 'avatar', '') or ''
+
+            ctx = {
+                'owner': owner,
+                'service': service,
+                'booker': booker,
+                'trade': trade,
+                'service_url': service_url,
+                'trade_date': trade_date,
+                'trade_time': trade_time,
+                'booker_avatar': booker_avatar,
+            }
+
+            html_message = render_to_string('emails/trade_booking.html', ctx)
+            plain = strip_tags(html_message)
+            send_mail(subject, plain, from_email, [owner.email], fail_silently=False, html_message=html_message)
+        except Exception:
+            # Do not block API response if email sending fails
+            pass
+
+    def _send_trade_notification(self, trade, actor, action_label='modified'):
+        """Notify the other participant about a change to the trade.
+
+        action_label: 'modified' | 'cancelled' | 'created' (affects subject)
+        """
+        service = getattr(trade, 'service', None)
+        owner = getattr(service, 'user', None) if service else None
+
+        # Determine recipient: the other participant
+        recipient = trade.requester if actor == owner else owner
+        if not recipient or not getattr(recipient, 'email', None):
+            return
+
+        from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', None) or settings.EMAIL_HOST_USER or DEFAULT_EMAIL
+        title = getattr(service, 'title', '') if service else ''
+        subject = self._trade_subject(action_label, title)
+
+        frontend = getattr(settings, 'FRONTEND_URL', '').rstrip('/')
+        service_url = f"{frontend}/services/{service.id}" if frontend and service else ''
+
+        trade_date, trade_time = self._format_trade_datetime(trade)
+        booker = getattr(trade, 'requester', None)
+        booker_avatar = self._user_avatar_url(booker)
+
+        ctx = {
+            'owner': owner,
+            'service': service,
+            'booker': booker,
+            'trade': trade,
+            'service_url': service_url,
+            'trade_date': trade_date,
+            'trade_time': trade_time,
+            'booker_avatar': booker_avatar,
+            'action_label': action_label,
+        }
+
+        try:
+            html_message = render_to_string('emails/trade_booking.html', ctx)
+            plain = strip_tags(html_message)
+            send_mail(subject, plain, from_email, [recipient.email], fail_silently=False, html_message=html_message)
+        except Exception:
+            # Do not block API response if email sending fails
+            pass
+
+    def _trade_subject(self, action_label, title):
+        mapping = {
+            'cancelled': f"TimeCircle — Reserva cancelada para '{title}'",
+            'modified': f"TimeCircle — Cambio en la solicitud para '{title}'",
+        }
+        return mapping.get(action_label, f"TimeCircle — Actualización sobre '{title}'")
+
+    def _format_trade_datetime(self, trade):
+        trade_dt = getattr(trade, 'scheduled_date', None)
+        if not trade_dt:
+            return '', ''
+        return trade_dt.strftime('%d/%m/%Y'), trade_dt.strftime('%H:%M')
+
+    def _user_avatar_url(self, user):
+        if not user:
+            return ''
+        try:
+            if getattr(user, 'avatar_image', None):
+                return user.avatar_image.url
+            return user.avatar or ''
+        except Exception:
+            return getattr(user, 'avatar', '') or ''
 
     @extend_schema(
         tags=['Trades'],
@@ -790,7 +955,7 @@ class TradeViewSet(viewsets.ModelViewSet):
         responses={
             200: TradeSerializer,
             400: OpenApiResponse(description='Transición de estado inválida'),
-            403: OpenApiResponse(description='No eres participante de este intercambio'),
+            403: OpenApiResponse(description=NOT_PARTICIPANT_ERROR),
         },
     )
     @action(detail=True, methods=['patch'], url_path='status')
@@ -798,7 +963,7 @@ class TradeViewSet(viewsets.ModelViewSet):
         trade = self.get_object()
         if request.user not in [trade.offerer, trade.requester]:
             return Response(
-                {'detail': 'No eres participante de este intercambio.'},
+                {'detail': NOT_PARTICIPANT_ERROR},
                 status=status.HTTP_403_FORBIDDEN,
             )
         serializer = TradeStatusUpdateSerializer(
@@ -806,6 +971,13 @@ class TradeViewSet(viewsets.ModelViewSet):
         )
         serializer.is_valid(raise_exception=True)
         trade = serializer.save()
+        # If trade was cancelled, notify the other participant
+        try:
+            if getattr(trade, 'status', None) == 'cancelled':
+                self._send_trade_notification(trade, request.user, action_label='cancelled')
+        except Exception as exc:
+            # Notification failures are non-blocking for status updates.
+            print(f"Trade notification error (cancelled): {exc}")
         return Response(TradeSerializer(trade, context={'request': request}).data)
 
     @extend_schema(
@@ -824,7 +996,7 @@ class TradeViewSet(viewsets.ModelViewSet):
         trade = self.get_object()
         if request.user not in [trade.offerer, trade.requester]:
             return Response(
-                {'detail': 'No eres participante de este intercambio.'},
+                {'detail': NOT_PARTICIPANT_ERROR},
                 status=status.HTTP_403_FORBIDDEN,
             )
         serializer = TradeNegotiationSerializer(
@@ -833,6 +1005,174 @@ class TradeViewSet(viewsets.ModelViewSet):
         )
         serializer.is_valid(raise_exception=True)
         trade = serializer.save()
+        # Notify the other participant that the trade was modified (negotiation)
+        try:
+            self._send_trade_notification(trade, request.user, action_label='modified')
+        except Exception as exc:
+            # Notification failures are non-blocking for negotiation updates.
+            print(f"Trade notification error (modified): {exc}")
+        return Response(TradeSerializer(trade, context={'request': request}).data)
+
+    @extend_schema(
+        tags=['Trades'],
+        summary='Solicitar inicio de la actividad',
+        description='Un participante solicita iniciar la actividad dentro de la ventana permitida (±1 día / +5 horas).',
+        request=None,
+        responses={200: TradeSerializer, 400: OpenApiResponse(description='No permitido')},
+    )
+    @action(detail=True, methods=['post'], url_path='start/request')
+    def start_request(self, request, pk=None):
+        trade = self.get_object()
+        if request.user not in [trade.offerer, trade.requester]:
+            return Response({'detail': NOT_PARTICIPANT_ERROR}, status=status.HTTP_403_FORBIDDEN)
+        from .serializers import TradeStartRequestSerializer
+        serializer = TradeStartRequestSerializer(data=request.data or {}, context={'request': request, 'trade': trade})
+        serializer.is_valid(raise_exception=True)
+
+        trade.started_at = timezone.now()
+        trade.started_by = request.user
+        # Clear any existing auto-cancel since start was explicitly requested
+        trade.auto_cancel_at = None
+        trade.save(update_fields=['started_at', 'started_by', 'auto_cancel_at'])
+
+        create_trade_message(
+            trade=trade,
+            sender=request.user,
+            message_type=Message.Type.TRADE_STATUS,
+            action='start_requested',
+            content='Se ha solicitado iniciar la actividad',
+        )
+        try:
+            self._send_trade_notification(trade, request.user, action_label='modified')
+        except Exception:
+            logger.exception(
+                "Failed to send trade notification in start_request (trade_id=%s, user_id=%s)",
+                trade.id,
+                request.user.id,
+            )
+
+        return Response(TradeSerializer(trade, context={'request': request}).data)
+
+    @extend_schema(
+        tags=['Trades'],
+        summary='Confirmar inicio solicitado por la otra parte',
+        request=None,
+        responses={200: TradeSerializer, 400: OpenApiResponse(description='No permitido')},
+    )
+    @action(detail=True, methods=['post'], url_path='start/confirm')
+    def start_confirm(self, request, pk=None):
+        trade = self.get_object()
+        from .serializers import TradeConfirmStartSerializer
+        serializer = TradeConfirmStartSerializer(data=request.data or {}, context={'request': request, 'trade': trade})
+        serializer.is_valid(raise_exception=True)
+
+        # Transition to in_progress
+        trade.status = Trade.Status.IN_PROGRESS
+        # Ensure started_at is set
+        if trade.started_at is None:
+            trade.started_at = timezone.now()
+        trade.save(update_fields=['status', 'started_at'])
+
+        create_trade_message(
+            trade=trade,
+            sender=request.user,
+            message_type=Message.Type.TRADE_STATUS,
+            action='start_confirmed',
+            content='Inicio de actividad confirmado por la otra parte',
+        )
+        try:
+            self._send_trade_notification(trade, request.user, action_label='modified')
+        except Exception:
+            logger.exception("Failed to send trade notification in start_confirm for trade_id=%s", trade.id)
+
+        return Response(TradeSerializer(trade, context={'request': request}).data)
+
+    @extend_schema(
+        tags=['Trades'],
+        summary='Solicitar finalización de la actividad (uno de los participantes)',
+        request=None,
+        responses={200: TradeSerializer, 400: OpenApiResponse(description='No permitido')},
+    )
+    @action(detail=True, methods=['post'], url_path='end/request')
+    def end_request(self, request, pk=None):
+        trade = self.get_object()
+        from .serializers import TradeEndRequestSerializer
+        serializer = TradeEndRequestSerializer(data=request.data or {}, context={'request': request, 'trade': trade})
+        serializer.is_valid(raise_exception=True)
+
+        ec = list(trade.end_confirmations or [])
+        if request.user.id not in ec:
+            ec.append(request.user.id)
+            trade.end_confirmations = ec
+            trade.save(update_fields=['end_confirmations'])
+
+        create_trade_message(
+            trade=trade,
+            sender=request.user,
+            message_type=Message.Type.TRADE_STATUS,
+            action='completion_requested',
+            content='Se ha solicitado finalizar la actividad',
+        )
+
+        # If both participants have requested, complete the trade (reuse status update serializer)
+        participants = {trade.offerer_id, trade.requester_id}
+        if set(trade.end_confirmations or []) >= participants:
+            status_serializer = TradeStatusUpdateSerializer(trade, data={'status': Trade.Status.COMPLETED}, context={'request': request})
+            status_serializer.is_valid(raise_exception=True)
+            trade = status_serializer.save()
+
+        try:
+            self._send_trade_notification(trade, request.user, action_label='modified')
+        except Exception:
+            logger.exception(
+                "Failed to send trade notification in end_request (trade_id=%s, actor_id=%s)",
+                trade.id,
+                request.user.id,
+            )
+
+        return Response(TradeSerializer(trade, context={'request': request}).data)
+
+    @extend_schema(
+        tags=['Trades'],
+        summary='Confirmar finalización solicitada por la otra parte',
+        request=None,
+        responses={200: TradeSerializer, 400: OpenApiResponse(description='No permitido')},
+    )
+    @action(detail=True, methods=['post'], url_path='end/confirm')
+    def end_confirm(self, request, pk=None):
+        trade = self.get_object()
+        from .serializers import TradeConfirmEndSerializer
+        serializer = TradeConfirmEndSerializer(data=request.data or {}, context={'request': request, 'trade': trade})
+        serializer.is_valid(raise_exception=True)
+
+        ec = list(trade.end_confirmations or [])
+        if request.user.id not in ec:
+            ec.append(request.user.id)
+            trade.end_confirmations = ec
+            trade.save(update_fields=['end_confirmations'])
+
+        create_trade_message(
+            trade=trade,
+            sender=request.user,
+            message_type=Message.Type.TRADE_STATUS,
+            action='completion_confirmed',
+            content='Confirmación de finalización recibida',
+        )
+
+        participants = {trade.offerer_id, trade.requester_id}
+        if set(trade.end_confirmations or []) >= participants:
+            status_serializer = TradeStatusUpdateSerializer(trade, data={'status': Trade.Status.COMPLETED}, context={'request': request})
+            status_serializer.is_valid(raise_exception=True)
+            trade = status_serializer.save()
+            try:
+                self._send_trade_notification(trade, request.user, action_label='modified')
+            except Exception:
+                logger.exception(
+                    "Failed to send trade notification on end_confirm (trade_id=%s, user_id=%s)",
+                    trade.id,
+                    request.user.id,
+                )
+
         return Response(TradeSerializer(trade, context={'request': request}).data)
 
 
@@ -962,6 +1302,36 @@ class ReviewViewSet(viewsets.ModelViewSet):
             qs = qs.filter(reviewer_id=int(reviewer_id))
 
         return qs.order_by('-created_at')
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        review = serializer.save()
+
+        # Notify the reviewee by email
+        try:
+            reviewee = review.reviewee
+            if reviewee and reviewee.email:
+                from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', None) or settings.EMAIL_HOST_USER or DEFAULT_EMAIL
+                subject = f"TimeCircle — Nueva valoración de {request.user.get_full_name() or request.user.username}"
+                frontend = getattr(settings, 'FRONTEND_URL', '').rstrip('/')
+                trade_url = f"{frontend}/services/{review.trade.service.id}" if frontend and getattr(review.trade, 'service', None) else ''
+                ctx = {
+                    'reviewee': reviewee,
+                    'reviewer': request.user,
+                    'review': review,
+                    'trade_url': trade_url,
+                }
+                try:
+                    html_message = render_to_string('emails/review_notification.html', ctx)
+                    plain = strip_tags(html_message)
+                    send_mail(subject, plain, from_email, [reviewee.email], fail_silently=False, html_message=html_message)
+                except Exception:
+                    logger.exception("Failed to send review notification email for review_id=%s to user_id=%s", review.id, reviewee.id)
+        except Exception:
+            logger.exception("Unexpected error while preparing review notification for review_id=%s", review.id)
+
+        return Response(ReviewSerializer(review, context={'request': request}).data, status=status.HTTP_201_CREATED)
 
 
 # ══════════════════════════════════════════════════════════

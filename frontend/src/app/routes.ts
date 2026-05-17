@@ -11,10 +11,12 @@ import { Trades } from './pages/Trades';
 import { Messages } from './pages/Messages';
 import { Profile } from './pages/Profile';
 import { Leaderboard } from './pages/Leaderboard';
+import { Calendar } from './pages/Calendar';
 import { Admin } from './pages/Admin';
 import { History } from './pages/History';
 import { TermsOfService } from './pages/TermsOfService';
 import { Contact } from './pages/Contact';
+import { NotFound } from './pages/NotFound';
 
 export const router = createBrowserRouter([
   {
@@ -47,6 +49,7 @@ export const router = createBrowserRouter([
       { path: 'services',     Component: Services },
       { path: 'services/new', Component: NewService },
       { path: 'services/:id', Component: ServiceDetail },
+      { path: 'calendar',     Component: Calendar },
       { path: 'trades',       Component: Trades },
       { path: 'messages',     Component: Messages },
       { path: 'profile/:id',  Component: Profile },
@@ -54,5 +57,9 @@ export const router = createBrowserRouter([
       { path: 'history',      Component: History },
       { path: 'admin',        Component: Admin },
     ],
+  },
+  {
+    path: '*',
+    Component: NotFound,
   },
 ]);

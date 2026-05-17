@@ -5,7 +5,7 @@ import {
   Shield, HelpCircle, Send, CheckCircle, Loader2,
   AlertCircle,
 } from 'lucide-react';
-import { ThemeToggle } from '../components/ThemeToggle';
+import TopNav from '../components/TopNav';
 import { apiSendContactMessage } from '../api/endpoints';
 
 type ContactReason = 'soporte' | 'legal' | 'reporte' | 'sugerencia' | 'otro';
@@ -20,22 +20,27 @@ const REASONS: { value: ContactReason; label: string; icon: React.ReactNode; des
 
 const FAQ = [
   {
+    id: 1,
     q: '¿Cómo recupero mi contraseña?',
     a: 'Actualmente, contacta con soporte adjuntando el correo de tu cuenta y te ayudaremos a restablecerla.',
   },
   {
+    id: 2,
     q: '¿Puedo transferir créditos a otro usuario directamente?',
     a: 'No. Los créditos solo se transfieren a través de intercambios completados. Esto garantiza la integridad del sistema.',
   },
   {
+    id: 3,
     q: '¿Qué pasa si un usuario no cumple el servicio acordado?',
     a: 'Puedes cancelar el intercambio y reportar al usuario. Nuestro equipo revisará el caso y tomará las medidas oportunas.',
   },
   {
+    id: 4,
     q: '¿TimeCircle cobra alguna comisión?',
     a: 'No. TimeCircle es una plataforma sin ánimo de lucro. No cobramos comisiones ni cuotas por ningún tipo de intercambio.',
   },
   {
+    id: 5,
     q: '¿Cómo elimino mi cuenta y mis datos?',
     a: 'Escríbenos a privacidad@timecircle.app con el asunto "Eliminación de cuenta" e incluye tu nombre de usuario. Procesaremos tu solicitud en un máximo de 30 días.',
   },
@@ -56,7 +61,16 @@ export const Contact: React.FC = () => {
     const e: Record<string, string> = {};
     if (!name.trim())    e.name    = 'El nombre es obligatorio';
     if (!email.trim())   e.email   = 'El correo es obligatorio';
-    if (!/\S+@\S+\.\S+/.test(email)) e.email = 'Introduce un correo válido';
+    const isValidEmail = (val: string) => {
+      const em = val.trim();
+      const at = em.indexOf('@');
+      if (at <= 0) return false;
+      const dot = em.lastIndexOf('.');
+      if (dot <= at + 1) return false;
+      if (dot === em.length - 1) return false;
+      return true;
+    };
+    if (!isValidEmail(email)) e.email = 'Introduce un correo válido';
     if (!selectedReason) e.reason  = 'Selecciona el motivo de contacto';
     if (!message.trim()) e.message = 'El mensaje no puede estar vacío';
     if (message.length < 20) e.message = 'El mensaje debe tener al menos 20 caracteres';
@@ -105,25 +119,7 @@ export const Contact: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-white dark:bg-slate-950 transition-colors duration-300">
-      {/* Navbar */}
-      <nav className="sticky top-0 z-50 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-100 dark:border-slate-800">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link to="/" className="flex items-center gap-2 text-slate-500 dark:text-slate-400 hover:text-teal-600 dark:hover:text-teal-400 transition-colors" style={{ fontSize: '0.875rem' }}>
-              <ArrowLeft className="w-4 h-4" />
-              Volver
-            </Link>
-            <span className="text-slate-200 dark:text-slate-700">|</span>
-            <Link to="/" className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-teal-500 to-teal-700 flex items-center justify-center">
-                <Clock className="w-3.5 h-3.5 text-white" />
-              </div>
-              <span className="text-slate-900 dark:text-white" style={{ fontWeight: 700, fontSize: '1rem' }}>TimeCircle</span>
-            </Link>
-          </div>
-          <ThemeToggle />
-        </div>
-      </nav>
+      <TopNav />
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-12">
         {/* Header */}
@@ -176,10 +172,11 @@ export const Contact: React.FC = () => {
                 {/* Nombre y email */}
                 <div className="grid sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-slate-700 dark:text-slate-300 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>
+                    <label htmlFor="contact-name" className="block text-slate-700 dark:text-slate-300 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>
                       Nombre *
                     </label>
                     <input
+                      id="contact-name"
                       type="text"
                       value={name}
                       onChange={e => { setName(e.target.value); setErrors(v => ({ ...v, name: '' })); }}
@@ -190,10 +187,11 @@ export const Contact: React.FC = () => {
                     {errors.name && <p className="text-red-500 mt-1" style={{ fontSize: '0.75rem' }}>{errors.name}</p>}
                   </div>
                   <div>
-                    <label className="block text-slate-700 dark:text-slate-300 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>
+                    <label htmlFor="contact-email" className="block text-slate-700 dark:text-slate-300 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>
                       Correo electrónico *
                     </label>
                     <input
+                      id="contact-email"
                       type="email"
                       value={email}
                       onChange={e => { setEmail(e.target.value); setErrors(v => ({ ...v, email: '' })); }}
@@ -207,9 +205,11 @@ export const Contact: React.FC = () => {
 
                 {/* Motivo */}
                 <div>
-                  <label className="block text-slate-700 dark:text-slate-300 mb-2" style={{ fontSize: '0.875rem', fontWeight: 500 }}>
-                    Motivo de contacto *
-                  </label>
+                  <fieldset className="border-0 p-0 m-0">
+                    <legend className="block text-slate-700 dark:text-slate-300 mb-2" style={{ fontSize: '0.875rem', fontWeight: 500 }}>
+                      Motivo de contacto *
+                    </legend>
+                  </fieldset>
                   <div className="grid sm:grid-cols-2 gap-2">
                     {REASONS.map(r => (
                       <button
@@ -239,10 +239,11 @@ export const Contact: React.FC = () => {
 
                 {/* Mensaje */}
                 <div>
-                  <label className="block text-slate-700 dark:text-slate-300 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>
+                  <label htmlFor="contact-message" className="block text-slate-700 dark:text-slate-300 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>
                     Mensaje *
                   </label>
                   <textarea
+                    id="contact-message"
                     value={message}
                     onChange={e => { setMessage(e.target.value); setErrors(v => ({ ...v, message: '' })); }}
                     placeholder="Describe tu consulta con el mayor detalle posible..."
@@ -321,7 +322,7 @@ export const Contact: React.FC = () => {
               </h3>
               <div className="space-y-2">
                 {FAQ.map((item, i) => (
-                  <div key={i} className="border border-slate-100 dark:border-slate-800 rounded-xl overflow-hidden">
+                  <div key={item.id} className="border border-slate-100 dark:border-slate-800 rounded-xl overflow-hidden">
                     <button
                       onClick={() => setOpenFaq(openFaq === i ? null : i)}
                       className="w-full flex items-start justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"

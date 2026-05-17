@@ -1,13 +1,29 @@
 import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router';
-import { Search, Plus, Filter, Clock, Star, ChevronRight, SlidersHorizontal } from 'lucide-react';
+import { Search, Plus, Clock, Star, ChevronRight, SlidersHorizontal } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { CATEGORIES, Service } from '../data/mockData';
 
 const ServiceCard: React.FC<{ service: Service }> = ({ service }) => {
-  const { getUserById } = useApp();
+  const { getUserById, getUserReviews, trades } = useApp();
   const user = getUserById(service.userId);
+  const userReviews = getUserReviews(service.userId);
+  const completedOnService = trades.filter(t => t.serviceId === service.id && t.status === 'completed').length;
   const cat = CATEGORIES.find(c => c.id === service.category);
+
+  // compute proximity classes and label without nested ternaries
+  let proximityClass = 'bg-red-100 text-red-700';
+  let proximityLabel = '🔴 Lejos';
+  if (service.proximity === 'very_close') {
+    proximityClass = 'bg-green-100 text-green-700';
+    proximityLabel = '🟢 Muy cerca';
+  } else if (service.proximity === 'close') {
+    proximityClass = 'bg-blue-100 text-blue-700';
+    proximityLabel = '🔵 Cerca';
+  } else if (service.proximity === 'medium') {
+    proximityClass = 'bg-amber-100 text-amber-700';
+    proximityLabel = '🟡 Medio';
+  }
 
   return (
     <Link to={`/services/${service.id}`} className="group block bg-white border border-slate-100 rounded-2xl p-5 hover:shadow-md hover:border-teal-200 transition-all">
@@ -32,11 +48,11 @@ const ServiceCard: React.FC<{ service: Service }> = ({ service }) => {
           <div className="text-slate-500" style={{ fontSize: '0.8rem' }}>
             {service.distanceKm} km desde ti
           </div>
-          <div>
-            <span className={`px-2 py-0.5 rounded-full text-xs ${service.proximity === 'very_close' ? 'bg-green-100 text-green-700' : service.proximity === 'close' ? 'bg-blue-100 text-blue-700' : service.proximity === 'medium' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
-              {service.proximity === 'very_close' ? '🟢 Muy cerca' : service.proximity === 'close' ? '🔵 Cerca' : service.proximity === 'medium' ? '🟡 Medio' : '🔴 Lejos'}
-            </span>
-          </div>
+            <div>
+              <span className={`px-2 py-0.5 rounded-full text-xs ${proximityClass}`}>
+                {proximityLabel}
+              </span>
+            </div>
         </div>
       )}
 
@@ -63,7 +79,7 @@ const ServiceCard: React.FC<{ service: Service }> = ({ service }) => {
             <div className="text-slate-700" style={{ fontSize: '0.8rem', fontWeight: 500 }}>{user?.name}</div>
             <div className="flex items-center gap-0.5">
               <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-              <span className="text-slate-400" style={{ fontSize: '0.7rem' }}>{user?.rating}</span>
+              <span className="text-slate-400" style={{ fontSize: '0.7rem' }}>{user?.rating} · {userReviews.length} · {completedOnService}/{user?.completedTrades ?? 0} intercambios</span>
             </div>
           </div>
         </div>
@@ -182,8 +198,8 @@ export const Services: React.FC = () => {
             {/* Distance & locality filters */}
             <div className="grid sm:grid-cols-3 gap-3 pt-2">
               <div>
-                <label className="block text-slate-700 mb-1" style={{ fontSize: '0.85rem' }}>Radio máximo (km)</label>
-                <input type="number" min={1} value={maxDistanceKm} onChange={e => setMaxDistanceKm(Number(e.target.value || 0))} className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50" />
+                <label htmlFor="maxDistanceKm" className="block text-slate-700 mb-1" style={{ fontSize: '0.85rem' }}>Radio máximo (km)</label>
+                <input id="maxDistanceKm" type="number" min={1} value={maxDistanceKm} onChange={e => setMaxDistanceKm(Number(e.target.value || 0))} className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50" />
               </div>
               <div className="flex items-center gap-2">
                 <input id="myCityOnly" type="checkbox" checked={myCityOnly} onChange={e => setMyCityOnly(e.target.checked)} className="w-4 h-4" />
@@ -228,7 +244,7 @@ export const Services: React.FC = () => {
           {(typeFilter === 'all' || typeFilter === 'offer') && offers.length > 0 && (
             <div>
               <h2 className="text-slate-700 mb-3 flex items-center gap-2" style={{ fontSize: '1rem', fontWeight: 600 }}>
-                ✋ Ofertas de servicio
+                ✋ Ofertas de servicio{' '}
                 <span className="bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full" style={{ fontSize: '0.75rem' }}>{offers.length}</span>
               </h2>
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -241,7 +257,7 @@ export const Services: React.FC = () => {
           {(typeFilter === 'all' || typeFilter === 'request') && requests.length > 0 && (
             <div>
               <h2 className="text-slate-700 mb-3 flex items-center gap-2" style={{ fontSize: '1rem', fontWeight: 600 }}>
-                🙋 Solicitudes de ayuda
+                🙋 Solicitudes de ayuda{' '}
                 <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full" style={{ fontSize: '0.75rem' }}>{requests.length}</span>
               </h2>
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">

@@ -36,6 +36,7 @@ export interface User {
 export interface Service {
   id: string;
   userId: string;
+  user?: User;
   type: 'offer' | 'request';
   title: string;
   description: string;
@@ -64,6 +65,11 @@ export interface Trade {
   lastProposedById?: string;
   lastProposedAt?: string;
   conversationId?: string;
+  // Optional activity/start/end fields
+  startedAt?: string;
+  startedById?: string;
+  endConfirmations?: string[];
+  autoCancelAt?: string;
 }
 
 export interface Message {

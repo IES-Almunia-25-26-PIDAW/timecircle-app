@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useTheme } from 'next-themes';
-import { Sun, Moon, Monitor } from 'lucide-react';
+import { Sun, Moon } from 'lucide-react';
 
 export const ThemeToggle: React.FC = () => {
-  const { theme, setTheme, resolvedTheme } = useTheme();
+  const { setTheme, resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => setMounted(true), []);

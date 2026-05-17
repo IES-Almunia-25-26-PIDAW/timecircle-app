@@ -48,7 +48,7 @@ const ProfileMap: React.FC<ProfileMapProps> = ({ lat, lon, zoom = 13, height = 3
     mapRef.current = map;
 
     return () => {
-      try { map.setTarget(undefined); } catch (e) { /* ignore */ }
+      try { map.setTarget(); } catch (e) { console.debug('ProfileMap: cleanup failed', e); }
       mapRef.current = null;
     };
   }, []);
@@ -59,7 +59,7 @@ const ProfileMap: React.FC<ProfileMapProps> = ({ lat, lon, zoom = 13, height = 3
     }
   }, [lat, lon, zoom]);
 
-  return <div ref={elRef} style={{ width: '100%', height }} />;
+  return <div ref={elRef} style={{ width: '100%', height, borderRadius: 12, overflow: 'hidden' }} />;
 };
 
 export default ProfileMap;

@@ -36,7 +36,7 @@ function MenubarGroup({
 
 function MenubarPortal({
   ...props
-}: React.ComponentProps<typeof MenubarPrimitive.Portal>) {
+}: Readonly<React.ComponentProps<typeof MenubarPrimitive.Portal>>) {
   return <MenubarPrimitive.Portal data-slot="menubar-portal" {...props} />;
 }
 
@@ -212,7 +212,7 @@ function MenubarShortcut({
 
 function MenubarSub({
   ...props
-}: React.ComponentProps<typeof MenubarPrimitive.Sub>) {
+}: Readonly<React.ComponentProps<typeof MenubarPrimitive.Sub>>) {
   return <MenubarPrimitive.Sub data-slot="menubar-sub" {...props} />;
 }
 

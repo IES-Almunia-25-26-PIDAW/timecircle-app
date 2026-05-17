@@ -1,17 +1,20 @@
 import decimal
 import math
+import logging
 from typing import Optional
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
 from django.utils import timezone
+from datetime import timedelta
 
 from .models import (
     User, Category, Tag, Skill, UserSkill, Service, Trade,
     Transaction, Conversation, Message, Review, ContactMessage, PasswordResetCode
 )
 
-
+NOT_PARTICIPANT_ERROR = 'No eres participante de este intercambio.'
+logger = logging.getLogger(__name__)
 
 # ══════════════════════════════════════════════════════════
 #  HABILIDADES  /  TAGS  /  CATEGORÍAS
@@ -78,6 +81,7 @@ class UserSerializer(serializers.ModelSerializer):
     """Serializer de lectura con todos los campos públicos del usuario."""
 
     name         = serializers.SerializerMethodField()
+    avatar       = serializers.SerializerMethodField()
     skills       = serializers.SerializerMethodField()
     member_since = serializers.DateTimeField(source='date_joined', read_only=True)
     is_admin     = serializers.BooleanField(source='is_staff', read_only=True)
@@ -102,6 +106,18 @@ class UserSerializer(serializers.ModelSerializer):
 
     def get_name(self, obj: User) -> str:
         return obj.get_full_name() or obj.username
+
+    def get_avatar(self, obj: User) -> str:
+        # Prefer uploaded image if present, fall back to stored URL
+        try:
+            if getattr(obj, 'avatar_image', None):
+                if obj.avatar_image and hasattr(obj.avatar_image, 'url'):
+                    return obj.avatar_image.url
+        except Exception:
+            # Defensive fallback: if avatar storage/file metadata is unavailable
+            # or broken, keep serialization working by using the legacy avatar URL.
+            pass
+        return obj.avatar or ''
 
     def get_skills(self, obj: User) -> list[str]:
         return list(
@@ -143,12 +159,26 @@ class UserUpdateSerializer(serializers.ModelSerializer):
         model  = User
         fields = [
             'first_name', 'last_name', 'avatar', 'bio', 'location',
+            'avatar_image',
             'city', 'country', 'latitude', 'longitude',
             'street_address', 'postal_code', 'share_exact_location',
             'search_radius_km', 'search_my_city_only',
             'max_trade_distance_km', 'trade_my_city_only',
         ]
 
+    avatar_image = serializers.ImageField(required=False, allow_null=True)
+
+    def validate_avatar_image(self, value):
+        if value is None:
+            return None
+        max_size = 5 * 1024 * 1024  # 5 MB
+        if getattr(value, 'size', 0) > max_size:
+            raise serializers.ValidationError('El archivo es demasiado grande (máx. 5 MB).')
+        content_type = getattr(value, 'content_type', '')
+        allowed = ('image/png', 'image/jpeg', 'image/webp')
+        if content_type and content_type not in allowed:
+            raise serializers.ValidationError('Formato de imagen no soportado. Usa PNG/JPEG/WEBP.')
+        return value
     def validate_avatar(self, value: str) -> str:
         if value and not value.startswith(('http://', 'https://')):
             raise serializers.ValidationError('El avatar debe ser una URL válida (http/https).')
@@ -186,11 +216,40 @@ class UserUpdateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('El código postal es demasiado largo.')
         return val
 
+    def update(self, instance: User, validated_data: dict) -> User:
+        # Handle avatar_image specially: allow upload or explicit removal (null)
+        avatar_provided = 'avatar_image' in validated_data
+        avatar_value = validated_data.pop('avatar_image', serializers.empty)
+
+        # If avatar_image explicitly provided as None -> remove existing image
+        if avatar_provided and avatar_value is None:
+            try:
+                instance.avatar_image.delete(save=False)
+            except Exception:
+                logger.exception("Failed to delete previous avatar_image for user_id=%s", instance.pk)
+            instance.avatar_image = None
+
+        # If avatar_image is a file, assign it
+        elif avatar_provided and avatar_value is not serializers.empty and avatar_value is not None:
+            instance.avatar_image = avatar_value
+
+        # If avatar URL provided as empty string, clear it
+        if 'avatar' in validated_data and validated_data['avatar'] == '':
+            instance.avatar = ''
+
+        # Update remaining fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        instance.save()
+        return instance
+
 
 class MeSerializer(serializers.ModelSerializer):
     """Serializer para el propio usuario: incluye campos de ubicación y preferencias."""
 
     name = serializers.SerializerMethodField()
+    avatar = serializers.SerializerMethodField()
     member_since = serializers.DateTimeField(source='date_joined', read_only=True)
     skills = serializers.SerializerMethodField()
     is_admin = serializers.BooleanField(source='is_staff', read_only=True)
@@ -216,6 +275,15 @@ class MeSerializer(serializers.ModelSerializer):
 
     def get_skills(self, obj: User) -> list[str]:
         return list(obj.user_skills.select_related('skill').values_list('skill__name', flat=True))
+
+    def get_avatar(self, obj: User) -> str:
+        try:
+            if getattr(obj, 'avatar_image', None):
+                if obj.avatar_image and hasattr(obj.avatar_image, 'url'):
+                    return obj.avatar_image.url
+        except Exception as exc:
+            logger.warning("Unable to resolve avatar_image.url for user %s: %s", obj.pk, exc)
+        return obj.avatar or ''
 
 
 class UserRankingSerializer(serializers.ModelSerializer):
@@ -429,6 +497,29 @@ def create_trade_message(
         payload=build_trade_message_payload(trade, action, message),
     )
     conversation.save()
+    # Broadcast to websocket group so participants receive the update in real-time
+    try:
+        from channels.layers import get_channel_layer
+        from asgiref.sync import async_to_sync
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f'conversation_{conversation.id}',
+            {
+                'type': 'message.received',
+                'id': msg.id,
+                'conversation_id': conversation.id,
+                'sender_id': sender.id,
+                'sender_name': sender.get_full_name() or sender.username,
+                'sender_avatar': getattr(sender, 'avatar', '') or '',
+                'content': msg.content,
+                'timestamp': msg.timestamp.isoformat(),
+                'read': msg.read,
+            }
+        )
+    except Exception:
+        # Do not block message creation if broadcasting fails
+        pass
+
     return msg
 
 
@@ -447,6 +538,7 @@ class TradeSerializer(serializers.ModelSerializer):
             'id', 'service', 'offerer', 'requester',
             'status', 'scheduled_date', 'credits_amount',
             'notes', 'last_proposed_by', 'last_proposed_at',
+            'started_at', 'started_by', 'auto_cancel_at', 'end_confirmations',
             'conversation_id', 'created_at', 'completed_at', 'reviews',
         ]
         read_only_fields = [
@@ -550,7 +642,7 @@ class TradeNegotiationSerializer(serializers.Serializer):
         if trade.status != Trade.Status.PENDING:
             raise serializers.ValidationError('Solo se pueden negociar intercambios pendientes.')
         if request.user not in [trade.offerer, trade.requester]:
-            raise serializers.ValidationError('No eres participante de este intercambio.')
+            raise serializers.ValidationError(NOT_PARTICIPANT_ERROR)
         if not any(field in attrs for field in negotiable_fields):
             raise serializers.ValidationError('Debes cambiar fecha, créditos o notas.')
 
@@ -579,6 +671,16 @@ class TradeNegotiationSerializer(serializers.Serializer):
             'last_proposed_by', 'last_proposed_at',
         ])
 
+        # If trade was already accepted, update auto-cancel deadline according to new scheduled_date
+        try:
+            if trade.status == Trade.Status.ACCEPTED and trade.scheduled_date:
+                trade.auto_cancel_at = trade.scheduled_date + timedelta(hours=5)
+                trade.save(update_fields=['auto_cancel_at'])
+        except Exception:
+            __import__('logging').exception(
+                'Failed to update auto_cancel_at after trade negotiation',
+            )
+
         create_trade_message(
             trade=trade,
             sender=request.user,
@@ -588,6 +690,69 @@ class TradeNegotiationSerializer(serializers.Serializer):
             message=self.validated_data.get('message', ''),
         )
         return trade
+
+
+class TradeStartRequestSerializer(serializers.Serializer):
+    """Validates a request to start the activity for a Trade.
+
+    Ensures the caller is a participant and that the current time is within
+    the allowed window (max 1 day early, max 5 hours late).
+    """
+    def validate(self, attrs: dict) -> dict:
+        trade: Trade = self.context['trade']
+        request = self.context['request']
+        if request.user not in [trade.offerer, trade.requester]:
+            raise serializers.ValidationError(NOT_PARTICIPANT_ERROR)
+        if trade.status != Trade.Status.ACCEPTED:
+            raise serializers.ValidationError('Solo se puede solicitar el inicio de intercambios aceptados.')
+        now = timezone.now()
+        earliest = trade.scheduled_date - timedelta(days=1)
+        latest = trade.scheduled_date + timedelta(hours=5)
+        if now < earliest:
+            raise serializers.ValidationError('Aún es demasiado pronto para iniciar esta actividad.')
+        if now > latest:
+            raise serializers.ValidationError('Has excedido la ventana para iniciar esta actividad.')
+        return attrs
+
+
+class TradeConfirmStartSerializer(serializers.Serializer):
+    """No-body serializer used to confirm another participant's start request."""
+    def validate(self, attrs: dict) -> dict:
+        trade: Trade = self.context['trade']
+        request = self.context['request']
+        if request.user not in [trade.offerer, trade.requester]:
+            raise serializers.ValidationError(NOT_PARTICIPANT_ERROR)
+        if trade.started_at is None:
+            raise serializers.ValidationError('No hay una solicitud de inicio pendiente.')
+        if trade.status != Trade.Status.ACCEPTED:
+            raise serializers.ValidationError('El intercambio no está en estado correcto para confirmar inicio.')
+        if trade.started_by_id == request.user.id:
+            raise serializers.ValidationError('No puedes confirmar tu propia solicitud de inicio.')
+        return attrs
+
+
+class TradeEndRequestSerializer(serializers.Serializer):
+    """Request to mark activity completion (one participant asks to end)."""
+    def validate(self, attrs: dict) -> dict:
+        trade: Trade = self.context['trade']
+        request = self.context['request']
+        if request.user not in [trade.offerer, trade.requester]:
+            raise serializers.ValidationError(NOT_PARTICIPANT_ERROR)
+        if trade.status != Trade.Status.IN_PROGRESS:
+            raise serializers.ValidationError('Sólo se puede solicitar finalización de intercambios en curso.')
+        return attrs
+
+
+class TradeConfirmEndSerializer(serializers.Serializer):
+    """Confirm the other participant's end request; when both confirm the trade completes."""
+    def validate(self, attrs: dict) -> dict:
+        trade: Trade = self.context['trade']
+        request = self.context['request']
+        if request.user not in [trade.offerer, trade.requester]:
+            raise serializers.ValidationError(NOT_PARTICIPANT_ERROR)
+        if trade.status != Trade.Status.IN_PROGRESS:
+            raise serializers.ValidationError('El intercambio no está en curso.')
+        return attrs
 
 
 class TradeStatusUpdateSerializer(serializers.ModelSerializer):
@@ -628,10 +793,21 @@ class TradeStatusUpdateSerializer(serializers.ModelSerializer):
     def update(self, instance: Trade, validated_data: dict) -> Trade:
         new_status = validated_data['status']
         instance.status = new_status
-
         if new_status == Trade.Status.COMPLETED:
             instance.completed_at = timezone.now()
             self._transfer_credits(instance)
+
+        # If accepted, schedule auto-cancel at scheduled_date + 5 hours
+        if new_status == Trade.Status.ACCEPTED:
+            try:
+                if instance.scheduled_date:
+                    instance.auto_cancel_at = instance.scheduled_date + timedelta(hours=5)
+            except Exception:
+                instance.auto_cancel_at = None
+
+        # If cancelled or completed, clear auto_cancel_at
+        if new_status in [Trade.Status.CANCELLED, Trade.Status.COMPLETED]:
+            instance.auto_cancel_at = None
 
         instance.save()
         request = self.context.get('request')

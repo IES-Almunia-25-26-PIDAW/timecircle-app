@@ -32,8 +32,9 @@ function ToggleGroup({
         className,
       )}
       {...props}
-    >
-      <ToggleGroupContext.Provider value={{ variant, size }}>
+      >
+      {/** Memoize context value to avoid changing object each render */}
+      <ToggleGroupContext.Provider value={React.useMemo(() => ({ variant, size }), [variant, size])}>
         {children}
       </ToggleGroupContext.Provider>
     </ToggleGroupPrimitive.Root>
