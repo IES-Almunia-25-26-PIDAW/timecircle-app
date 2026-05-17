@@ -22,7 +22,7 @@ export const Register: React.FC = () => {
   const handleFirstNameChange = (val: string) => {
     setFirstName(val);
     if (!username) {
-      const auto = val.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+      const auto = val.toLowerCase().replaceAll(/\s+/g, '_').replaceAll(/[^a-z0-9_]/g, '');
       setUsername(auto);
     }
   };
@@ -171,10 +171,11 @@ export const Register: React.FC = () => {
           <form onSubmit={handleSubmit} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-slate-700 dark:text-slate-300 mb-1" style={{ fontSize: '0.875rem', fontWeight: 500 }}>
+                <label htmlFor="register-firstname" className="block text-slate-700 dark:text-slate-300 mb-1" style={{ fontSize: '0.875rem', fontWeight: 500 }}>
                   Nombre *
                 </label>
                 <input
+                  id="register-firstname"
                   type="text"
                   value={firstName}
                   onChange={e => handleFirstNameChange(e.target.value)}
@@ -185,10 +186,11 @@ export const Register: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-slate-700 dark:text-slate-300 mb-1" style={{ fontSize: '0.875rem', fontWeight: 500 }}>
+                <label htmlFor="register-lastname" className="block text-slate-700 dark:text-slate-300 mb-1" style={{ fontSize: '0.875rem', fontWeight: 500 }}>
                   Apellidos *
                 </label>
                 <input
+                  id="register-lastname"
                   type="text"
                   value={lastName}
                   onChange={e => setLastName(e.target.value)}
@@ -200,13 +202,14 @@ export const Register: React.FC = () => {
               </div>
             </div>
             <div>
-              <label className="block text-slate-700 dark:text-slate-300 mb-1" style={{ fontSize: '0.875rem', fontWeight: 500 }}>
+              <label htmlFor="register-username" className="block text-slate-700 dark:text-slate-300 mb-1" style={{ fontSize: '0.875rem', fontWeight: 500 }}>
                 Nombre de usuario *
               </label>
               <input
+                id="register-username"
                 type="text"
                 value={username}
-                onChange={e => setUsername(e.target.value.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, ''))}
+                onChange={e => setUsername(e.target.value.toLowerCase().replaceAll(/\s+/g, '_').replaceAll(/[^a-z0-9_]/g, ''))}
                 placeholder="ana_garcia"
                 required
                 className="w-full px-4 py-2.5 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 transition-all"
@@ -215,10 +218,11 @@ export const Register: React.FC = () => {
               <p className="text-slate-400 mt-1" style={{ fontSize: '0.75rem' }}>Solo letras minúsculas, números y guiones bajos</p>
             </div>
             <div>
-              <label className="block text-slate-700 dark:text-slate-300 mb-1" style={{ fontSize: '0.875rem', fontWeight: 500 }}>
+              <label htmlFor="register-email" className="block text-slate-700 dark:text-slate-300 mb-1" style={{ fontSize: '0.875rem', fontWeight: 500 }}>
                 Correo electrónico *
               </label>
               <input
+                id="register-email"
                 type="email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
@@ -229,11 +233,12 @@ export const Register: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-slate-700 dark:text-slate-300 mb-1" style={{ fontSize: '0.875rem', fontWeight: 500 }}>
+              <label htmlFor="register-password" className="block text-slate-700 dark:text-slate-300 mb-1" style={{ fontSize: '0.875rem', fontWeight: 500 }}>
                 Contraseña *
               </label>
               <div className="relative">
                 <input
+                  id="register-password"
                   type={showPass ? 'text' : 'password'}
                   value={password}
                   onChange={e => setPassword(e.target.value)}
@@ -248,10 +253,11 @@ export const Register: React.FC = () => {
               </div>
             </div>
             <div>
-              <label className="block text-slate-700 dark:text-slate-300 mb-1" style={{ fontSize: '0.875rem', fontWeight: 500 }}>
+              <label htmlFor="register-confirm-password" className="block text-slate-700 dark:text-slate-300 mb-1" style={{ fontSize: '0.875rem', fontWeight: 500 }}>
                 Confirmar contraseña *
               </label>
               <input
+                id="register-confirm-password"
                 type="password"
                 value={confirmPassword}
                 onChange={e => setConfirmPassword(e.target.value)}

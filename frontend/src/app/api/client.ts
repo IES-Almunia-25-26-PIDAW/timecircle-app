@@ -31,7 +31,7 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
   const makeRequest = async (token: string | null) => {
     const isForm = options.body instanceof FormData;
     const headers: Record<string, string> = {
-      ...(options.headers as Record<string, string> || {}),
+      ...(options.headers as Record<string, string>),
     };
     if (!isForm) headers['Content-Type'] = 'application/json';
     if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -53,12 +53,12 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
         res = await makeRequest(data.access);
       } else {
         clearTokens();
-        window.location.href = '/login';
+        globalThis.location.href = '/login';
         return null;
       }
     } catch {
       clearTokens();
-      window.location.href = '/login';
+      globalThis.location.href = '/login';
       return null;
     }
   }

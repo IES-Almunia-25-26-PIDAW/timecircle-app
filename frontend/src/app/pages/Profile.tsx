@@ -2,7 +2,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router';
 import {
   Star, Clock, ArrowLeftRight, MapPin, MessageCircle,
-  Pencil, Calendar, Tag, Plus, X, Loader2,
+  Pencil, Calendar, Tag, Plus, Loader2,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import Cropper from 'react-easy-crop';
@@ -94,7 +94,7 @@ const EditProfileModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => resolve(img);
-      img.onerror = (e) => reject(e);
+      img.onerror = () => reject(new Error('Failed to load image'));
       img.src = url;
     });
 
@@ -154,7 +154,7 @@ const EditProfileModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         setCountry(meData.country || '');
       }
     } catch (e) {
-      // ignore
+      console.error('Error getting location', e);
     }
   };
 
@@ -164,32 +164,32 @@ const EditProfileModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         <h2 className="text-slate-900 mb-5" style={{ fontSize: '1.1rem', fontWeight: 700 }}>Editar perfil</h2>
         <div className="space-y-4">
           <div>
-            <label className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Nombre completo</label>
-            <input value={name} onChange={e => setName(e.target.value)} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50" style={{ fontSize: '0.875rem' }} />
+            <label htmlFor="edit-name" className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Nombre completo</label>
+            <input id="edit-name" value={name} onChange={e => setName(e.target.value)} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50" style={{ fontSize: '0.875rem' }} />
           </div>
           <div>
-            <label className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Ubicación</label>
-            <input value={location} onChange={e => setLocation(e.target.value)} placeholder="Tu barrio o ciudad" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50" style={{ fontSize: '0.875rem' }} />
+            <label htmlFor="edit-location" className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Ubicación</label>
+            <input id="edit-location" value={location} onChange={e => setLocation(e.target.value)} placeholder="Tu barrio o ciudad" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50" style={{ fontSize: '0.875rem' }} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Ciudad (estructurada)</label>
-              <input value={city} onChange={e => setCity(e.target.value)} placeholder="Ciudad" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50" style={{ fontSize: '0.875rem' }} />
+              <label htmlFor="edit-city" className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Ciudad (estructurada)</label>
+              <input id="edit-city" value={city} onChange={e => setCity(e.target.value)} placeholder="Ciudad" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50" style={{ fontSize: '0.875rem' }} />
             </div>
             <div>
-              <label className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>País</label>
-              <input value={country} onChange={e => setCountry(e.target.value)} placeholder="País" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50" style={{ fontSize: '0.875rem' }} />
+              <label htmlFor="edit-country" className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>País</label>
+              <input id="edit-country" value={country} onChange={e => setCountry(e.target.value)} placeholder="País" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50" style={{ fontSize: '0.875rem' }} />
             </div>
           </div>
 
           <div>
-            <label className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Dirección exacta (opcional)</label>
-            <input value={streetAddress} onChange={e => setStreetAddress(e.target.value)} placeholder="Calle, número, piso" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50" style={{ fontSize: '0.875rem' }} />
+            <label htmlFor="edit-street" className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Dirección exacta (opcional)</label>
+            <input id="edit-street" value={streetAddress} onChange={e => setStreetAddress(e.target.value)} placeholder="Calle, número, piso" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50" style={{ fontSize: '0.875rem' }} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Código postal</label>
-              <input value={postalCode} onChange={e => setPostalCode(e.target.value)} placeholder="Código postal" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50" style={{ fontSize: '0.875rem' }} />
+              <label htmlFor="edit-postal" className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Código postal</label>
+              <input id="edit-postal" value={postalCode} onChange={e => setPostalCode(e.target.value)} placeholder="Código postal" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50" style={{ fontSize: '0.875rem' }} />
             </div>
             <div className="flex items-center gap-2">
               <input id="shareExactLocation" type="checkbox" checked={shareExactLocation} onChange={e => setShareExactLocation(e.target.checked)} className="w-4 h-4" />
@@ -245,14 +245,23 @@ const EditProfileModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 </div>
               </div>
             )}
-            <div onDrop={handleDrop} onDragOver={e => e.preventDefault()} className="p-3 border border-dashed rounded-xl flex items-center gap-3">
-              <div className="w-16 h-16 rounded-xl overflow-hidden bg-slate-100 flex items-center justify-center">
-                <img src={avatarPreview || currentUser?.avatar} alt="avatar" className="w-full h-full object-cover" />
-              </div>
-              <div className="flex-1">
-                <input type="file" accept="image/*" onChange={e => handleFileSelected(e.target.files ? e.target.files[0] : undefined)} />
-                <div className="text-slate-500 text-sm">Arrastra una imagen o selecciónala. Se redimensionará automáticamente.</div>
-              </div>
+            <div className="p-3 border border-dashed rounded-xl flex items-center gap-3">
+              <input id="edit-avatar" type="file" accept="image/*" onChange={e => handleFileSelected(e.target.files ? e.target.files[0] : undefined)} className="hidden" />
+              <button
+                type="button"
+                onDrop={handleDrop}
+                onDragOver={e => e.preventDefault()}
+                aria-label="Seleccionar o arrastrar foto de perfil"
+                onClick={() => document.getElementById('edit-avatar')?.click()}
+                className="flex-1 flex items-center gap-3 bg-transparent border-0 p-0"
+              >
+                <div className="w-16 h-16 rounded-xl overflow-hidden bg-slate-100 flex items-center justify-center">
+                  <img src={avatarPreview || currentUser?.avatar} alt="avatar" className="w-full h-full object-cover" />
+                </div>
+                <div className="flex-1 text-left">
+                  <div className="text-slate-500 text-sm">Arrastra una imagen o selecciónala. Se redimensionará automáticamente.</div>
+                </div>
+              </button>
               <div>
                 <button type="button" onClick={handleRemoveAvatar} className="text-red-600">Eliminar</button>
               </div>
@@ -260,8 +269,8 @@ const EditProfileModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           </div>
 
           <div>
-            <label className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Sobre mí</label>
-            <textarea value={bio} onChange={e => setBio(e.target.value)} rows={4} placeholder="Cuéntanos algo sobre ti..." className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50 resize-none" style={{ fontSize: '0.875rem' }} />
+            <label htmlFor="edit-bio" className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Sobre mí</label>
+            <textarea id="edit-bio" value={bio} onChange={e => setBio(e.target.value)} rows={4} placeholder="Cuéntanos algo sobre ti..." className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50 resize-none" style={{ fontSize: '0.875rem' }} />
           </div>
         </div>
         <div className="flex gap-3 mt-6">

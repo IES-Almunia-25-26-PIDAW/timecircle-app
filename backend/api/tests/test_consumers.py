@@ -1,5 +1,6 @@
 from django.test import TestCase
 from asgiref.sync import async_to_sync
+from django.core import signing
 import json
 
 from api.consumers import PresenceConsumer
@@ -69,3 +70,100 @@ class ConsumerTests(TestCase):
         async_to_sync(consumer.receive)(text_data=json.dumps({'action': 'unsubscribe', 'conversation_id': conv.id}))
         self.assertNotIn(conv.id, consumer.subscribed_conversations)
         self.assertIn((f'conversation_{conv.id}', 'chan1'), consumer.channel_layer.discarded)
+
+    def test_connect_branches_and_accept(self):
+        consumer = PresenceConsumer()
+        consumer.scope = {'query_string': b''}
+
+        # missing ws_key -> close 4003
+        closed = {}
+        async def close(code=None):
+            closed['code'] = code
+        consumer.close = close
+        async_to_sync(consumer.connect)()
+        self.assertEqual(closed.get('code'), 4003)
+
+    def test_connect_bad_and_expired_and_user_not_found(self):
+        consumer = PresenceConsumer()
+        consumer.scope = {'query_string': b'ws_key=token'}
+        # Monkeypatch signing.loads to raise BadSignature
+        import api.consumers as cons_mod
+        real_loads = cons_mod.signing.loads
+        try:
+            cons_mod.signing.loads = lambda *a, **k: (_ for _ in ()).throw(cons_mod.signing.BadSignature())
+            closed = {}
+            async def close(code=None):
+                closed.setdefault('code', code)
+            consumer.close = close
+            async_to_sync(consumer.connect)()
+            self.assertEqual(closed.get('code'), 4002)
+
+            # expired
+            cons_mod.signing.loads = lambda *a, **k: (_ for _ in ()).throw(cons_mod.signing.SignatureExpired())
+            closed = {}
+            async def close(code=None):
+                closed.setdefault('code', code)
+            consumer.close = close
+            async_to_sync(consumer.connect)()
+            self.assertEqual(closed.get('code'), 4001)
+
+            # user not found
+            cons_mod.signing.loads = lambda *a, **k: {'user_id': 999999}
+            closed = {}
+            async def close(code=None):
+                closed.setdefault('code', code)
+            consumer.close = close
+            async_to_sync(consumer.connect)()
+            self.assertEqual(closed.get('code'), 4004)
+        finally:
+            cons_mod.signing.loads = real_loads
+
+    def test_connect_success(self):
+        u = make_user(username='connectuser', email='cu@example.com')
+        token = signing.dumps({'user_id': u.id})
+        consumer = PresenceConsumer()
+        consumer.scope = {'query_string': f'ws_key={token}'.encode()}
+        accepted = {'ok': False}
+        async def accept():
+            accepted.__setitem__('ok', True)
+        consumer.accept = accept
+        async_to_sync(consumer.connect)()
+        self.assertTrue(accepted['ok'])
+        self.assertEqual(consumer.user.id, u.id)
+
+    def test_receive_invalid_and_empty(self):
+        consumer = PresenceConsumer(scope={'query_string': b''})
+        # No text_data
+        async_to_sync(consumer.receive)(text_data=None)
+        # invalid json
+        async_to_sync(consumer.receive)(text_data='not-json')
+
+    def test_trade_event_and_send_handlers(self):
+        consumer = PresenceConsumer()
+        consumer.scope = {'query_string': b''}
+        sent = []
+        async def capture_send(text_data=None, bytes_data=None):
+            sent.append(text_data)
+        consumer.send = capture_send
+
+        # normal trade_event
+        async_to_sync(consumer.trade_event)({'payload': {'x': 1}})
+        self.assertTrue(any('trade.event' in s for s in sent))
+
+        # send raising should be caught
+        async def raise_send(*a, **k):
+            raise Exception('boom')
+        consumer.send = raise_send
+        # should not raise
+        async_to_sync(consumer.trade_event)({'payload': {'x': 2}})
+
+    def test_presence_and_message_forwarding(self):
+        consumer = PresenceConsumer()
+        consumer.scope = {'query_string': b''}
+        captured = []
+        async def capture_send(text_data=None, bytes_data=None):
+            captured.append(text_data)
+        consumer.send = capture_send
+        async_to_sync(consumer.presence_message)({'user_id': 1, 'status': 'online', 'typing': True})
+        async_to_sync(consumer.message_received)({'id': 2, 'conversation_id': 3, 'sender_id': 4, 'sender_name': 'X', 'sender_avatar': '', 'content': 'hi', 'timestamp': 't', 'read': False})
+        self.assertEqual(len(captured), 2)

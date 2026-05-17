@@ -1,24 +1,23 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import esLocale from '@fullcalendar/core/locales/es';
-import '@fullcalendar/common/main.css';
-import '@fullcalendar/daygrid/main.css';
-import '@fullcalendar/timegrid/main.css';
+import '../../styles/fullcalendar.css';
 import { useApp } from '../context/AppContext';
 
 export const Calendar: React.FC = () => {
   const { currentUser, getUserTrades, getServiceById, getUserById, startConversation } = useApp();
   const navigate = useNavigate();
+  const tooltipRef = useRef<HTMLDivElement | null>(null);
 
   const trades = currentUser ? getUserTrades(currentUser.id) : [];
 
   const events = useMemo(() => trades.map((t) => {
     const service = getServiceById(t.serviceId);
-    const otherUserId = currentUser && t.offererId === currentUser.id ? t.requesterId : t.offererId;
+    const otherUserId = t.offererId === currentUser?.id ? t.requesterId : t.offererId;
     const otherUser = getUserById(otherUserId || '');
     const titleParts: string[] = [];
     if (service?.title) titleParts.push(service.title);
@@ -65,6 +64,56 @@ export const Calendar: React.FC = () => {
     if (serviceId) navigate(`/services/${serviceId}`);
   };
 
+  useEffect(() => {
+    const el = document.createElement('div');
+    el.className = 'fc-event-tooltip';
+    el.style.position = 'absolute';
+    el.style.display = 'none';
+    document.body.appendChild(el);
+    tooltipRef.current = el;
+    return () => {
+      if (tooltipRef.current) {
+        tooltipRef.current.remove();
+        tooltipRef.current = null;
+      }
+    };
+  }, []);
+
+  const handleEventMouseEnter = (info: any) => {
+    const { event, jsEvent } = info;
+    const start = event.start ? new Date(event.start) : null;
+    const end = event.end ? new Date(event.end) : null;
+    let time = '';
+    if (start) {
+      const startStr = start.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+      const endStr = end ? ` — ${end.toLocaleTimeString([], { timeStyle: 'short' })}` : '';
+      time = `${startStr}${endStr}`;
+    }
+
+    if (tooltipRef.current) {
+      tooltipRef.current.innerHTML = `
+        <div class="title">${event.title}</div>
+        <div class="meta">${time}</div>
+        ${event.extendedProps?.status ? `<div class="meta">Estado: ${event.extendedProps.status}</div>` : ''}
+      `;
+      tooltipRef.current.style.left = `${jsEvent.clientX}px`;
+      tooltipRef.current.style.top = `${jsEvent.clientY}px`;
+      tooltipRef.current.style.display = 'block';
+    }
+  };
+
+  const handleEventMouseMove = (info: any) => {
+    const { jsEvent } = info;
+    if (tooltipRef.current) {
+      tooltipRef.current.style.left = `${jsEvent.clientX}px`;
+      tooltipRef.current.style.top = `${jsEvent.clientY}px`;
+    }
+  };
+
+  const handleEventMouseLeave = () => {
+    if (tooltipRef.current) tooltipRef.current.style.display = 'none';
+  };
+
   if (!currentUser) {
     return (
       <div className="text-center py-12 text-slate-500">Inicia sesión para ver tu calendario.</div>
@@ -78,7 +127,7 @@ export const Calendar: React.FC = () => {
           <h2 className="text-lg font-semibold">Calendario</h2>
         </div>
 
-        <div className="h-auto md:h-[700px]">
+        <div className="h-auto md:h-[700px] relative">
           <FullCalendar
             plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
             initialView="dayGridMonth"
@@ -87,6 +136,9 @@ export const Calendar: React.FC = () => {
             locale="es"
             events={events}
             eventClick={handleEventClick}
+            eventMouseEnter={handleEventMouseEnter}
+            eventMouseMove={handleEventMouseMove}
+            eventMouseLeave={handleEventMouseLeave}
             height="100%"
             dayMaxEventRows={3}
             nowIndicator

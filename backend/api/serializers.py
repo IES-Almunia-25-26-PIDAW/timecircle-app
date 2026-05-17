@@ -5,13 +5,14 @@ from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
 from django.utils import timezone
+from datetime import timedelta
 
 from .models import (
     User, Category, Tag, Skill, UserSkill, Service, Trade,
     Transaction, Conversation, Message, Review, ContactMessage, PasswordResetCode
 )
 
-
+NOT_PARTICIPANT_ERROR = 'No eres participante de este intercambio.'
 
 # ══════════════════════════════════════════════════════════
 #  HABILIDADES  /  TAGS  /  CATEGORÍAS
@@ -492,6 +493,29 @@ def create_trade_message(
         payload=build_trade_message_payload(trade, action, message),
     )
     conversation.save()
+    # Broadcast to websocket group so participants receive the update in real-time
+    try:
+        from channels.layers import get_channel_layer
+        from asgiref.sync import async_to_sync
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f'conversation_{conversation.id}',
+            {
+                'type': 'message.received',
+                'id': msg.id,
+                'conversation_id': conversation.id,
+                'sender_id': sender.id,
+                'sender_name': sender.get_full_name() or sender.username,
+                'sender_avatar': getattr(sender, 'avatar', '') or '',
+                'content': msg.content,
+                'timestamp': msg.timestamp.isoformat(),
+                'read': msg.read,
+            }
+        )
+    except Exception:
+        # Do not block message creation if broadcasting fails
+        pass
+
     return msg
 
 
@@ -510,6 +534,7 @@ class TradeSerializer(serializers.ModelSerializer):
             'id', 'service', 'offerer', 'requester',
             'status', 'scheduled_date', 'credits_amount',
             'notes', 'last_proposed_by', 'last_proposed_at',
+            'started_at', 'started_by', 'auto_cancel_at', 'end_confirmations',
             'conversation_id', 'created_at', 'completed_at', 'reviews',
         ]
         read_only_fields = [
@@ -613,7 +638,7 @@ class TradeNegotiationSerializer(serializers.Serializer):
         if trade.status != Trade.Status.PENDING:
             raise serializers.ValidationError('Solo se pueden negociar intercambios pendientes.')
         if request.user not in [trade.offerer, trade.requester]:
-            raise serializers.ValidationError('No eres participante de este intercambio.')
+            raise serializers.ValidationError(NOT_PARTICIPANT_ERROR)
         if not any(field in attrs for field in negotiable_fields):
             raise serializers.ValidationError('Debes cambiar fecha, créditos o notas.')
 
@@ -642,6 +667,14 @@ class TradeNegotiationSerializer(serializers.Serializer):
             'last_proposed_by', 'last_proposed_at',
         ])
 
+        # If trade was already accepted, update auto-cancel deadline according to new scheduled_date
+        try:
+            if trade.status == Trade.Status.ACCEPTED and trade.scheduled_date:
+                trade.auto_cancel_at = trade.scheduled_date + timedelta(hours=5)
+                trade.save(update_fields=['auto_cancel_at'])
+        except Exception:
+            pass
+
         create_trade_message(
             trade=trade,
             sender=request.user,
@@ -651,6 +684,69 @@ class TradeNegotiationSerializer(serializers.Serializer):
             message=self.validated_data.get('message', ''),
         )
         return trade
+
+
+class TradeStartRequestSerializer(serializers.Serializer):
+    """Validates a request to start the activity for a Trade.
+
+    Ensures the caller is a participant and that the current time is within
+    the allowed window (max 1 day early, max 5 hours late).
+    """
+    def validate(self, attrs: dict) -> dict:
+        trade: Trade = self.context['trade']
+        request = self.context['request']
+        if request.user not in [trade.offerer, trade.requester]:
+            raise serializers.ValidationError(NOT_PARTICIPANT_ERROR)
+        if trade.status != Trade.Status.ACCEPTED:
+            raise serializers.ValidationError('Solo se puede solicitar el inicio de intercambios aceptados.')
+        now = timezone.now()
+        earliest = trade.scheduled_date - timedelta(days=1)
+        latest = trade.scheduled_date + timedelta(hours=5)
+        if now < earliest:
+            raise serializers.ValidationError('Aún es demasiado pronto para iniciar esta actividad.')
+        if now > latest:
+            raise serializers.ValidationError('Has excedido la ventana para iniciar esta actividad.')
+        return attrs
+
+
+class TradeConfirmStartSerializer(serializers.Serializer):
+    """No-body serializer used to confirm another participant's start request."""
+    def validate(self, attrs: dict) -> dict:
+        trade: Trade = self.context['trade']
+        request = self.context['request']
+        if request.user not in [trade.offerer, trade.requester]:
+            raise serializers.ValidationError(NOT_PARTICIPANT_ERROR)
+        if trade.started_at is None:
+            raise serializers.ValidationError('No hay una solicitud de inicio pendiente.')
+        if trade.status != Trade.Status.ACCEPTED:
+            raise serializers.ValidationError('El intercambio no está en estado correcto para confirmar inicio.')
+        if trade.started_by_id == request.user.id:
+            raise serializers.ValidationError('No puedes confirmar tu propia solicitud de inicio.')
+        return attrs
+
+
+class TradeEndRequestSerializer(serializers.Serializer):
+    """Request to mark activity completion (one participant asks to end)."""
+    def validate(self, attrs: dict) -> dict:
+        trade: Trade = self.context['trade']
+        request = self.context['request']
+        if request.user not in [trade.offerer, trade.requester]:
+            raise serializers.ValidationError(NOT_PARTICIPANT_ERROR)
+        if trade.status != Trade.Status.IN_PROGRESS:
+            raise serializers.ValidationError('Sólo se puede solicitar finalización de intercambios en curso.')
+        return attrs
+
+
+class TradeConfirmEndSerializer(serializers.Serializer):
+    """Confirm the other participant's end request; when both confirm the trade completes."""
+    def validate(self, attrs: dict) -> dict:
+        trade: Trade = self.context['trade']
+        request = self.context['request']
+        if request.user not in [trade.offerer, trade.requester]:
+            raise serializers.ValidationError(NOT_PARTICIPANT_ERROR)
+        if trade.status != Trade.Status.IN_PROGRESS:
+            raise serializers.ValidationError('El intercambio no está en curso.')
+        return attrs
 
 
 class TradeStatusUpdateSerializer(serializers.ModelSerializer):
@@ -691,10 +787,21 @@ class TradeStatusUpdateSerializer(serializers.ModelSerializer):
     def update(self, instance: Trade, validated_data: dict) -> Trade:
         new_status = validated_data['status']
         instance.status = new_status
-
         if new_status == Trade.Status.COMPLETED:
             instance.completed_at = timezone.now()
             self._transfer_credits(instance)
+
+        # If accepted, schedule auto-cancel at scheduled_date + 5 hours
+        if new_status == Trade.Status.ACCEPTED:
+            try:
+                if instance.scheduled_date:
+                    instance.auto_cancel_at = instance.scheduled_date + timedelta(hours=5)
+            except Exception:
+                instance.auto_cancel_at = None
+
+        # If cancelled or completed, clear auto_cancel_at
+        if new_status in [Trade.Status.CANCELLED, Trade.Status.COMPLETED]:
+            instance.auto_cancel_at = None
 
         instance.save()
         request = self.context.get('request')

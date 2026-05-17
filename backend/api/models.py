@@ -216,6 +216,15 @@ class Trade(models.Model):
     last_proposed_at = models.DateTimeField(null=True, blank=True)
     created_at     = models.DateTimeField(auto_now_add=True)
     completed_at   = models.DateTimeField(null=True, blank=True)
+    # Activity / start/end tracking
+    started_at     = models.DateTimeField(null=True, blank=True)
+    started_by     = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='trades_started'
+    )
+    # Track which participants have confirmed the end (store user ids or roles)
+    end_confirmations = models.JSONField(default=list, blank=True)
+    # If the trade is not started within this datetime it will be auto-cancelled
+    auto_cancel_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'trade'

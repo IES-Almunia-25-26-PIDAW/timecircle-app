@@ -82,12 +82,6 @@ export const Landing: React.FC = () => {
                   Únete gratis
                   <ArrowRight className="w-4 h-4" />
                 </Link>
-                <Link
-                  to="/login"
-                  className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 px-6 py-3 rounded-xl transition-colors"
-                >
-                  Ver demo
-                </Link>
               </div>
               <div className="mt-8 flex items-center gap-6">
                 {[

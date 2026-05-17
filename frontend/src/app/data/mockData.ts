@@ -65,6 +65,11 @@ export interface Trade {
   lastProposedById?: string;
   lastProposedAt?: string;
   conversationId?: string;
+  // Optional activity/start/end fields
+  startedAt?: string;
+  startedById?: string;
+  endConfirmations?: string[];
+  autoCancelAt?: string;
 }
 
 export interface Message {

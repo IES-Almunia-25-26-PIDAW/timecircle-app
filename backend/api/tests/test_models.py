@@ -16,11 +16,15 @@ from django.test import TestCase
 from django.db import IntegrityError
 from django.utils import timezone
 from datetime import timedelta
+import decimal
+import sys
+import types
+import pytest
 
 from api.models import (
     User, Category, Tag, Skill, UserSkill,
     Service, Trade, Transaction,
-    Conversation, Message, Review,
+    Conversation, Message, Review, UserPresence,
 )
 from .factories import (
     make_user, make_category, make_tag, make_skill,
@@ -332,3 +336,144 @@ class ReviewModelTests(TestCase):
         reviews    = list(Review.objects.all())
         self.assertEqual(reviews[0].pk, r2.pk)
         self.assertEqual(reviews[1].pk, r1.pk)
+
+
+# Additional tests moved here to cover newly added backend code
+
+
+def test_reverse_geocode_when_service_returns_data(monkeypatch):
+    from api import utils_geo
+
+    class DummyLocation:
+        def __init__(self, raw):
+            self.raw = raw
+
+    raw = {'address': {
+        'city': 'TestCity',
+        'country': 'TestCountry',
+        'road': 'Main St',
+        'house_number': '42',
+        'postcode': '12345'
+    }}
+    loc = DummyLocation(raw)
+
+    class FakeNominatim:
+        def __init__(self, user_agent):
+            pass
+
+        def reverse(self, coords, language=None, addressdetails=False):
+            return loc
+
+    fake_geopy = types.SimpleNamespace(geocoders=types.SimpleNamespace(Nominatim=FakeNominatim))
+    monkeypatch.setitem(sys.modules, 'geopy', fake_geopy)
+    monkeypatch.setitem(sys.modules, 'geopy.geocoders', fake_geopy.geocoders)
+
+    city, country, street, postal = utils_geo.reverse_geocode(1.0, 2.0)
+    assert city == 'TestCity'
+    assert country == 'TestCountry'
+    assert street == 'Main St 42'
+    assert postal == '12345'
+
+
+def test_reverse_geocode_when_service_returns_none(monkeypatch):
+    from api import utils_geo
+
+    class FakeNominatim2:
+        def __init__(self, user_agent):
+            pass
+
+        def reverse(self, coords, language=None, addressdetails=False):
+            return None
+
+    fake_geopy = types.SimpleNamespace(geocoders=types.SimpleNamespace(Nominatim=FakeNominatim2))
+    monkeypatch.setitem(sys.modules, 'geopy', fake_geopy)
+    monkeypatch.setitem(sys.modules, 'geopy.geocoders', fake_geopy.geocoders)
+
+    city, country, street, postal = utils_geo.reverse_geocode(1.0, 2.0)
+    assert city is None and country is None and street is None and postal is None
+
+
+def test_reverse_geocode_when_geopy_missing(monkeypatch):
+    from api import utils_geo
+
+    monkeypatch.syspath_prepend('')
+    monkeypatch.setitem(sys.modules, 'geopy', None)
+    monkeypatch.setitem(sys.modules, 'geopy.geocoders', None)
+
+    city, country, street, postal = utils_geo.reverse_geocode(1.0, 2.0)
+    assert city is None and country is None and street is None and postal is None
+
+
+@pytest.mark.django_db
+def test_update_badge_thresholds():
+    u = User.objects.create_user(username='u1', email='u1@example.com', password='pass')
+
+    u.completed_trades = 0
+    u.update_badge()
+    u.refresh_from_db()
+    assert u.badge == ''
+
+    u.completed_trades = 5
+    u.update_badge()
+    u.refresh_from_db()
+    assert u.badge == User.Badge.BRONZE
+
+    u.completed_trades = 20
+    u.update_badge()
+    u.refresh_from_db()
+    assert u.badge == User.Badge.SILVER
+
+    u.completed_trades = 50
+    u.update_badge()
+    u.refresh_from_db()
+    assert u.badge == User.Badge.GOLD
+
+
+@pytest.mark.django_db
+def test_award_onboarding_bonus():
+    u = User.objects.create_user(username='u2', email='u2@example.com', password='pass')
+    assert u.credits == decimal.Decimal('0.0')
+    u.award_onboarding_bonus(decimal.Decimal('1.5'), reason='test')
+    u.refresh_from_db()
+    assert u.credits == decimal.Decimal('1.5')
+
+
+@pytest.mark.django_db
+def test_update_rating_and_total_reviews():
+    offerer = User.objects.create_user(username='offer', email='offer@example.com', password='pass')
+    requester = User.objects.create_user(username='req', email='req@example.com', password='pass')
+    cat = Category.objects.create(name='Test')
+    service = Service.objects.create(user=offerer, title='S', duration=60, credits=1, category=cat)
+    trade = Trade.objects.create(service=service, offerer=offerer, requester=requester,
+                                 scheduled_date=timezone.now(), credits_amount=1)
+
+    Review.objects.create(trade=trade, reviewer=requester, reviewee=offerer, rating=4, comment='ok')
+    Review.objects.create(trade=trade, reviewer=offerer, reviewee=offerer, rating=5, comment='self')
+
+    offerer.update_rating()
+    offerer.refresh_from_db()
+    assert float(offerer.rating) == pytest.approx(4.5)
+    assert offerer.total_reviews == 2
+
+
+@pytest.mark.django_db
+def test_userpresence_effective_status_and_typing():
+    u = User.objects.create_user(username='presence', email='p@example.com', password='pass')
+    conv = Conversation.objects.create()
+    conv.participants.add(u)
+
+    up = UserPresence.objects.create(user=u, last_active=timezone.now() - timedelta(minutes=10))
+    assert up.effective_status == 'offline'
+
+    up.last_active = timezone.now()
+    up.save(update_fields=['last_active'])
+    assert up.effective_status == up.status
+
+    up.typing_in = conv
+    up.typing_at = timezone.now()
+    up.save(update_fields=['typing_in', 'typing_at'])
+    assert up.typing_conversation_id == conv.id
+
+    up.typing_at = timezone.now() - timedelta(seconds=10)
+    up.save(update_fields=['typing_at'])
+    assert up.typing_conversation_id is None

@@ -39,7 +39,7 @@ const GeoOverviewMap: React.FC<Props> = ({ center = { lat: 40.4168, lon: -3.7038
     vectorRef.current = vectorSource;
 
     return () => {
-      try { map.setTarget(undefined); } catch (e) { console.error('Error occurred while setting map target to undefined', e) }
+      try { map.setTarget(); } catch (e) { console.error('Error occurred while clearing map target', e) }
       mapRef.current = null;
       vectorRef.current = null;
     };
@@ -47,7 +47,7 @@ const GeoOverviewMap: React.FC<Props> = ({ center = { lat: 40.4168, lon: -3.7038
 
   useEffect(() => {
     if (!vectorRef.current) return;
-    const source = vectorRef.current as any;
+    const source = vectorRef.current;
     source.clear();
 
     const makeFeature = (cell: Cell, color: string, minRadius = 1000) => {

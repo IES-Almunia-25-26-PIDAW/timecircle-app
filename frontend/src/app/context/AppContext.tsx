@@ -1,11 +1,13 @@
 import React, {
   createContext, useContext, useState, useCallback, useEffect, useRef,
 } from 'react';
+import ActivityTimerBar from '../components/ActivityTimerBar';
+import TradeConfirmModal from '../components/TradeConfirmModal';
+import Toasts, { pushToast } from '../components/Toasts';
 import {
   User, Service, Trade, Message, Conversation, Review,
-  API_CAT_TO_SLUG, SLUG_TO_API_CAT,
+  API_CAT_TO_SLUG,
 } from '../data/mockData';
-import { BASE_URL } from '../api/client';
 import {
   apiLogin, apiLogout, apiRegister, apiGetMe, apiUpdateMe,
   apiGetUsers, apiGetUser,
@@ -14,12 +16,12 @@ import {
   apiGetTrades, apiCreateTrade, apiUpdateTradeStatus, apiNegotiateTrade,
   apiGetConversations, apiGetConversation, apiCreateConversation,
   apiSendMessage, apiMarkConversationRead,
+  apiRequestTradeStart, apiConfirmTradeStart, apiRequestTradeEnd, apiConfirmTradeEnd,
   apiGetReviews, apiCreateReview,
-  apiAdminGetUsers, apiAdminUpdateUser, apiAdminDeleteUser,
+  apiAdminUpdateUser, apiAdminDeleteUser, apiGetWSPresenceHandshake
 } from '../api/endpoints';
-import { clearTokens, getTokens, apiFetch, getWsUrl } from '../api/client';
+import { BASE_URL, clearTokens, getTokens, apiFetch, getWsUrl } from '../api/client';
 import { createWS } from '../api/wsClient';
-import { apiGetWSPresenceHandshake } from '../api/endpoints';
 
 // ── MAPPERS API → UI ─────────────────────────────────────────
 
@@ -41,7 +43,7 @@ const mapUser = (u: any): User => ({
   longitude: u.longitude !== undefined && u.longitude !== null ? Number(u.longitude) : undefined,
   distanceKm: u.distance_km ?? undefined,
   credits: u.credits ?? 0,
-  rating: parseFloat(u.rating) || 0,
+  rating: Number.parseFloat(u.rating) || 0,
   totalReviews: u.total_reviews ?? 0,
   memberSince: (u.member_since || u.date_joined || '').split('T')[0] || '',
   skills: Array.isArray(u.skills) ? u.skills : [],
@@ -92,6 +94,10 @@ const mapTrade = (t: any): Trade => ({
   lastProposedById: t.last_proposed_by ? String(t.last_proposed_by?.id ?? t.last_proposed_by) : undefined,
   lastProposedAt: t.last_proposed_at || undefined,
   conversationId: t.conversation_id ? String(t.conversation_id) : undefined,
+  startedAt: t.started_at || undefined,
+  startedById: t.started_by ? String(t.started_by?.id ?? t.started_by) : undefined,
+  endConfirmations: Array.isArray(t.end_confirmations) ? t.end_confirmations.map(String) : [],
+  autoCancelAt: t.auto_cancel_at || undefined,
 });
 
 const mapMessage = (m: any, convId: string): Message => ({
@@ -132,7 +138,7 @@ interface AppContextType {
   login: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
   register: (name: string, email: string, password: string, username?: string) => Promise<boolean>;
-  updateProfile: (updates: Partial<User> & { avatarFile?: File | null; removeAvatar?: boolean }) => void;
+  updateProfile: (updates: Partial<User> & { avatarFile?: File | null; removeAvatar?: boolean }) => Promise<void>;
 
   // Data
   users: User[];
@@ -145,14 +151,18 @@ interface AppContextType {
   apiCategoryMap: Record<string, number>; // slug → api numeric id
 
   // Service Actions
-  addService: (service: Omit<Service, 'id' | 'createdAt'>) => void;
-  updateService: (id: string, updates: Partial<Service>) => void;
-  deleteService: (id: string) => void;
+  addService: (service: Omit<Service, 'id' | 'createdAt'>) => Promise<void>;
+  updateService: (id: string, updates: Partial<Service>) => Promise<void>;
+  deleteService: (id: string) => Promise<void>;
 
   // Trade Actions
   createTrade: (trade: Omit<Trade, 'id' | 'createdAt'>) => Promise<any>;
   updateTrade: (id: string, updates: Partial<Trade>) => Promise<void>;
   negotiateTrade: (id: string, updates: Partial<Trade> & { message?: string }) => Promise<Trade | undefined>;
+  requestStart: (tradeId: string) => Promise<void>;
+  confirmStart: (tradeId: string) => Promise<void>;
+  requestEnd: (tradeId: string) => Promise<void>;
+  confirmEnd: (tradeId: string) => Promise<void>;
 
   // Message Actions
   sendMessage: (conversationId: string, content: string) => void;
@@ -190,6 +200,10 @@ interface AppContextType {
   // WebSocket client (presence)
   getWsClient: () => any;
 
+  // UI helpers
+  showConfirm: (message: string, title?: string) => Promise<boolean>;
+  showToast: (message: string, level?: 'info' | 'success' | 'error') => void;
+
   // Refresh
   refreshServices: () => Promise<void>;
   refreshTrades: () => Promise<void>;
@@ -218,6 +232,66 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const initRanRef = useRef(false);
   const conversationsLastFetchedAtRef = useRef<number | null>(null);
   const servicesLastFetchedAtRef = useRef<number | null>(null);
+  // UI helpers: confirm modal + toast events
+  const [confirmState, setConfirmState] = useState<{
+    visible: boolean;
+    message: string;
+    title?: string;
+    resolve?: (v: boolean) => void;
+  } | null>(null);
+
+  const showConfirm = useCallback((message: string, title?: string) => new Promise<boolean>((resolve) => {
+    setConfirmState({ visible: true, message, title, resolve });
+  }), []);
+
+  const showToast = useCallback((message: string, level: 'info' | 'success' | 'error' = 'info') => {
+    pushToast(message, level);
+  }, []);
+  const fetchTrades = useCallback(async () => {
+    try {
+      const data = await apiGetTrades();
+      const list = data?.results || data || [];
+      setTrades(list.map(mapTrade));
+    } catch (e) {
+      console.error('Error fetching trades', e);
+    }
+  }, []);
+
+  // Extracted helpers to avoid deep nesting inside effects/callbacks
+  const handleWsMessage = useCallback((msg: any) => {
+    if (!msg) return;
+    if (msg?.type === 'presence') {
+      setUsers(prev => prev.map(u => (u.id === String(msg.user_id) ? { ...u, presenceStatus: msg.status, isTyping: msg.typing } : u)));
+      return;
+    }
+    if (msg?.type === 'trade.event') {
+      const payload = msg.payload || {};
+      // Refresh trades in background and show lightweight notification
+      fetchTrades().catch((e) => console.error('fetchTrades failed in WS handler', e));
+      try {
+        if (payload.action) globalThis.dispatchEvent(new CustomEvent('tc:trade:event', { detail: payload }));
+      } catch (e) {
+        console.error('Failed to dispatch trade event', e);
+      }
+    }
+  }, [fetchTrades]);
+
+  const addConversationIfMissing = useCallback((conv: Conversation) => {
+    setConversations(prev => {
+      if (prev.some(c => c.id === conv.id)) return prev;
+      return [conv, ...prev];
+    });
+  }, []);
+
+  const mergeConversationMessages = useCallback((existing: Message[], incoming: Message[]) => {
+    const existingIds = new Set(existing.map(m => m.id));
+    const newMsgs = incoming.filter(m => !existingIds.has(m.id));
+    const updated = existing.map(m => {
+      const fresh = incoming.find(fm => fm.id === m.id);
+      return fresh ? { ...m, read: fresh.read } : m;
+    });
+    return [...updated, ...newMsgs];
+  }, []);
 
   // ── FETCH APP DATA ────────────────────────────────────────
 
@@ -250,9 +324,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Rate-limit + dedupe concurrent duplicate fetches
     const MIN_SERVICES_INTERVAL = 3000; // 3s
     if (servicesLastFetchedAtRef.current && Date.now() - servicesLastFetchedAtRef.current < MIN_SERVICES_INTERVAL) {
-      return Promise.resolve();
+      return;
     }
-    if (servicesPromiseRef.current) return servicesPromiseRef.current;
+    if (servicesPromiseRef.current !== null) return servicesPromiseRef.current;
     servicesLastFetchedAtRef.current = Date.now();
     servicesPromiseRef.current = (async () => {
       try {
@@ -310,23 +384,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [viewerLocation, currentUser]);
 
-  const fetchTrades = useCallback(async () => {
-    try {
-      const data = await apiGetTrades();
-      const list = data?.results || data || [];
-      setTrades(list.map(mapTrade));
-    } catch (e) {
-      console.error('Error fetching trades', e);
-    }
-  }, []);
+  
 
   const fetchConversations = useCallback(async () => {
     // Rate-limit + dedupe concurrent conversation fetches
     const MIN_CONVERSATIONS_INTERVAL = 5000; // 5s
     if (conversationsLastFetchedAtRef.current && Date.now() - conversationsLastFetchedAtRef.current < MIN_CONVERSATIONS_INTERVAL) {
-      return Promise.resolve(conversations);
+      return conversations;
     }
-    if (conversationsPromiseRef.current) return conversationsPromiseRef.current;
+    if (conversationsPromiseRef.current !== null) return conversationsPromiseRef.current;
     conversationsLastFetchedAtRef.current = Date.now();
     conversationsPromiseRef.current = (async () => {
       try {
@@ -352,7 +418,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const all = [...received, ...given];
       // dedupe
       const seen = new Set<string>();
-      setReviews(all.filter(r => { if (seen.has(r.id)) return false; seen.add(r.id); return true; }));
+      setReviews(all.filter(r => { 
+        if (seen.has(r.id)) return false; 
+        else { seen.add(r.id); return true; } }));
     } catch (e) {
       console.error('Error fetching reviews', e);
     }
@@ -393,11 +461,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // ── GEOLOCATION: ask once per session and store viewer coords
   // Restore any previously granted viewer coords (anonymous or auth) from sessionStorage
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (globalThis.window === undefined) return;
   }, []);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !('geolocation' in navigator)) return;
+    if (globalThis.window === undefined || !('geolocation' in navigator)) return;
     try {
       const prompted = sessionStorage.getItem('timecircle_geo_prompted');
       if (prompted) return;
@@ -416,7 +484,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               if (meData) setCurrentUser(mapUser(meData));
             }
           } catch (e) {
-            // ignore update errors
+            console.warn('Failed to update user location after geolocation', e);
           }
         },
         () => {
@@ -427,7 +495,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         { enableHighAccuracy: false, timeout: 10000 }
       );
     } catch (e) {
-      // no-op
+      console.error('Geolocation initialization failed', e);
     }
   }, [currentUser]);
 
@@ -455,23 +523,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (hs?.ws_key) {
               const url = getWsUrl(`/ws/presence/?ws_key=${encodeURIComponent(hs.ws_key)}`);
               wsRef.current = createWS(url);
-              wsRef.current.onMessage((msg: any) => {
-                if (msg?.type === 'presence') {
-                  setUsers(prev => prev.map(u => (u.id === String(msg.user_id) ? { ...u, presenceStatus: msg.status, isTyping: msg.typing } : u)));
-                }
-              });
+              wsRef.current.onMessage(handleWsMessage);
             }
           } catch (e) {
-            // ignore ws errors
+            console.warn('WSPresence handshake failed', e);
           }
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error('Error fetching current user during init', err);
         // Only clear tokens for authentication-related errors. Transient
         // network or backend errors should not silently log the user out.
-        const isAuthError = err && (
-          (err as any).status === 401 ||
-          (typeof (err as any).detail === 'string' && /token|invalid|authentication|credencial/i.test((err as any).detail))
+        const isAuthError = (
+          (err?.status) === 401 ||
+          (typeof (err?.detail) === 'string' && /token|invalid|authentication|credencial/i.test((err?.detail)))
         );
         if (isAuthError) {
           clearTokens();
@@ -507,7 +571,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           body: JSON.stringify({ status: currentStatus }),
         });
       } catch (e) {
-        // ignore errors
+        console.warn('Presence heartbeat failed', e);
       } finally {
         heartbeatInFlightRef.current = false;
       }
@@ -537,23 +601,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Los eventos de actividad resetean el temporizador de inactividad
     const events: (keyof WindowEventMap)[] = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart'];
-    events.forEach((e) => window.addEventListener(e, resetIdle, { passive: true }));
+    events.forEach((e) => globalThis.addEventListener(e, resetIdle, { passive: true }));
 
     // Al descargar/salir: marcar como 'ausente'
     const handleBeforeUnload = () => {
       apiFetch('/api/presence/heartbeat/', {
         method: 'POST',
         body: JSON.stringify({ status: 'away' }),
-      }).catch(() => {});
+      }).catch((e) => { console.warn('Failed to send beforeunload heartbeat', e); });
     };
-    window.addEventListener('beforeunload', handleBeforeUnload);
+    globalThis.addEventListener('beforeunload', handleBeforeUnload);
 
     return () => {
       // Limpieza al desmontar
       clearInterval(heartbeatInterval);
       if (idleTimer) clearTimeout(idleTimer);
-      events.forEach((e) => window.removeEventListener(e, resetIdle));
-      window.removeEventListener('beforeunload', handleBeforeUnload);
+      events.forEach((e) => globalThis.removeEventListener(e, resetIdle));
+      globalThis.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, [currentUser]);
 
@@ -572,14 +636,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (hs?.ws_key) {
           const url = getWsUrl(`/ws/presence/?ws_key=${encodeURIComponent(hs.ws_key)}`);
           wsRef.current = createWS(url);
-          wsRef.current.onMessage((msg: any) => {
-            if (msg?.type === 'presence') {
-              setUsers(prev => prev.map(u => (u.id === String(msg.user_id) ? { ...u, presenceStatus: msg.status, isTyping: msg.typing } : u)));
-            }
-          });
+          wsRef.current.onMessage(handleWsMessage);
         }
       } catch (e) {
-        // ignore
+        console.warn('WSPresence handshake failed', e);
       }
       setLoading(false);
       return true;
@@ -609,7 +669,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const parts = name.trim().split(' ');
       const first_name = parts[0] || '';
       const last_name = parts.slice(1).join(' ') || '';
-      const uname = username || name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+      const uname = username || name.toLowerCase().replaceAll(/\s+/g, '_').replaceAll(/[^a-z0-9_]/g, '');
       const data = await apiRegister({
         username: uname,
         email,
@@ -631,44 +691,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [loadInitialData]);
 
-  const updateProfile = useCallback(async (updates: Partial<User> & { avatarFile?: File | null; removeAvatar?: boolean }) => {
+  const updateProfile = useCallback(async (updates: Partial<User> & { avatarFile?: File | null; removeAvatar?: boolean }) : Promise<void> => {
     if (!currentUser) return;
     try {
-      const payload: any = {};
-      if (updates.name !== undefined) {
-        const parts = (updates.name || '').trim().split(' ');
-        payload.first_name = parts[0] || '';
-        payload.last_name = parts.slice(1).join(' ') || '';
-      }
-      if (updates.bio !== undefined) payload.bio = updates.bio;
-      if (updates.location !== undefined) payload.location = updates.location;
-      if (updates.avatar !== undefined) payload.avatar = updates.avatar;
-      // Location / preference fields (map frontend keys → API snake_case)
-      if ((updates as any).city !== undefined) payload.city = (updates as any).city;
-      if ((updates as any).country !== undefined) payload.country = (updates as any).country;
-      if ((updates as any).latitude !== undefined) payload.latitude = (updates as any).latitude;
-      if ((updates as any).longitude !== undefined) payload.longitude = (updates as any).longitude;
-      if ((updates as any).streetAddress !== undefined) payload.street_address = (updates as any).streetAddress;
-      if ((updates as any).postalCode !== undefined) payload.postal_code = (updates as any).postalCode;
-      if ((updates as any).shareExactLocation !== undefined) payload.share_exact_location = (updates as any).shareExactLocation;
-      if ((updates as any).searchRadiusKm !== undefined) payload.search_radius_km = (updates as any).searchRadiusKm;
-      if ((updates as any).searchMyCityOnly !== undefined) payload.search_my_city_only = (updates as any).searchMyCityOnly;
-      if ((updates as any).maxTradeDistanceKm !== undefined) payload.max_trade_distance_km = (updates as any).maxTradeDistanceKm;
-      if ((updates as any).tradeMyCityOnly !== undefined) payload.trade_my_city_only = (updates as any).tradeMyCityOnly;
-      // If the caller provided a file (`avatarFile`), send as FormData so multipart is used
-      if ((updates as any).avatarFile) {
+      const buildPayload = (u: Partial<User> & { avatarFile?: File | null; removeAvatar?: boolean }) => {
+        const payload: any = {};
+        // name -> first_name/last_name
+        if (u.name !== undefined) {
+          const parts = (u.name || '').trim().split(' ');
+          payload.first_name = parts[0] || '';
+          payload.last_name = parts.slice(1).join(' ') || '';
+        }
+        // direct passthrough fields
+        ['bio', 'location', 'avatar'].forEach((k) => {
+          if ((u as any)[k] !== undefined) payload[k] = (u as any)[k];
+        });
+
+        // mapped fields: frontendKey -> apiKey
+        const mapped: Record<string, string> = {
+          city: 'city', country: 'country', latitude: 'latitude', longitude: 'longitude',
+          streetAddress: 'street_address', postalCode: 'postal_code',
+          shareExactLocation: 'share_exact_location', searchRadiusKm: 'search_radius_km',
+          searchMyCityOnly: 'search_my_city_only', maxTradeDistanceKm: 'max_trade_distance_km',
+          tradeMyCityOnly: 'trade_my_city_only',
+        };
+        Object.keys(mapped).forEach((fk) => {
+          const apiKey = mapped[fk];
+          if ((u as any)[fk] !== undefined) payload[apiKey] = (u as any)[fk];
+        });
+
+        return { payload, avatarFile: (u as any).avatarFile, removeAvatar: (u as any).removeAvatar };
+      };
+
+      const { payload, avatarFile, removeAvatar } = buildPayload(updates);
+
+      if (avatarFile) {
         const fd = new FormData();
-        // append mapped fields
-        Object.keys(payload).forEach((k) => fd.append(k, (payload as any)[k] === undefined ? '' : String((payload as any)[k])));
-        fd.append('avatar_image', (updates as any).avatarFile);
+        Object.keys(payload).forEach((k) => fd.append(k, payload[k] === undefined ? '' : String(payload[k])));
+        fd.append('avatar_image', avatarFile);
         await apiFetch('/api/auth/me/', { method: 'PATCH', body: fd });
       } else {
-        // If removeAvatar is explicitly requested, allow JSON null for avatar_image
-        if ((updates as any).removeAvatar) {
-          payload.avatar_image = null;
-        }
+        if (removeAvatar) payload.avatar_image = null;
         await apiUpdateMe(payload);
       }
+
       const meData = await apiGetMe();
       if (meData) {
         const updated = mapUser(meData);
@@ -720,7 +786,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [apiCategoryMap]);
 
-  const deleteService = useCallback(async (id: string) => {
+  const deleteService = useCallback(async (id: string) : Promise<void> => {
     try {
       await apiDeleteService(id);
       setServices(prev => prev.filter(s => s.id !== id));
@@ -733,7 +799,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const createTrade = useCallback(async (trade: Omit<Trade, 'id' | 'createdAt'>) => {
     try {
-      const serviceIdNum = parseInt(trade.serviceId, 10);
+      const serviceIdNum = Number.parseInt(trade.serviceId, 10);
       if (Number.isNaN(serviceIdNum)) {
         console.error('Create trade error: invalid serviceId', trade.serviceId);
         return undefined;
@@ -749,7 +815,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const created = res?.trade ?? res;
       const mappedTrade = mapTrade(created);
       if (res?.warning) {
-        try { window.alert(res.warning); } catch (e) { console.warn('Trade warning:', res.warning); }
+        try { pushToast(res.warning, 'info'); } catch (e) { console.warn('Trade warning:', e); }
       }
       setTrades(prev => [mappedTrade, ...prev.filter(t => t.id !== mappedTrade.id)]);
       if (res?.conversation) {
@@ -770,6 +836,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return undefined;
     }
   }, []);
+      
 
   const updateTrade = useCallback(async (id: string, updates: Partial<Trade>) => {
     if (updates.status) {
@@ -813,6 +880,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, []);
 
+  const requestStart = useCallback(async (tradeId: string) => {
+    try {
+      await apiRequestTradeStart(tradeId);
+      await fetchTrades();
+      pushToast('Inicio solicitado. Esperando confirmación de la otra parte.', 'info');
+    } catch (e) {
+      console.error('Request start error', e);
+      throw e;
+    }
+  }, [fetchTrades]);
+
+  const confirmStart = useCallback(async (tradeId: string) => {
+    try {
+      await apiConfirmTradeStart(tradeId);
+      await fetchTrades();
+      pushToast('Inicio confirmado. La actividad está en curso.', 'success');
+    } catch (e) {
+      console.error('Confirm start error', e);
+      throw e;
+    }
+  }, [fetchTrades]);
+
+  const requestEnd = useCallback(async (tradeId: string) => {
+    try {
+      await apiRequestTradeEnd(tradeId);
+      await fetchTrades();
+      pushToast('Finalización solicitada. Esperando confirmación de la otra parte.', 'info');
+    } catch (e) {
+      console.error('Request end error', e);
+      throw e;
+    }
+  }, [fetchTrades]);
+
+  const confirmEnd = useCallback(async (tradeId: string) => {
+    try {
+      await apiConfirmTradeEnd(tradeId);
+      await fetchTrades();
+      pushToast('Finalización confirmada. Trueque completado.', 'success');
+    } catch (e) {
+      console.error('Confirm end error', e);
+      throw e;
+    }
+  }, [fetchTrades]);
+
   // ── CONVERSATION / MESSAGE ACTIONS ────────────────────────
 
   const loadConversationMessages = useCallback(async (conversationId: string) => {
@@ -853,8 +964,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
     if (existing) return existing.id;
     try {
-      const currentUserId = parseInt(currentUser.id, 10);
-      const otherId = parseInt(otherUserId, 10);
+      const currentUserId = Number.parseInt(currentUser.id, 10);
+      const otherId = Number.parseInt(otherUserId, 10);
       if (Number.isNaN(currentUserId) || Number.isNaN(otherId)) {
         console.error('Start conversation error: invalid user id(s)', {
           currentUserId: currentUser.id,
@@ -867,10 +978,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         otherId,
       ]);
       const conv = mapConversation(res);
-      setConversations(prev => {
-        if (prev.find(c => c.id === conv.id)) return prev;
-        return [conv, ...prev];
-      });
+      addConversationIfMissing(conv);
       return conv.id;
     } catch (e) {
       console.error('Start conversation error', e);
@@ -888,7 +996,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         m.conversationId === conversationId ? { ...m, read: true } : m
       ));
     } catch (e) {
-      // silently fail
+      console.warn('Mark conversation read failed', e);
     }
   }, []);
 
@@ -896,18 +1004,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   try {
     const conv = await apiGetConversation(conversationId);
     const msgs = (conv?.messages || []).map((m: any) => mapMessage(m, conversationId));
-    setMessages(prev => {
-      const existing = prev.filter(m => m.conversationId !== conversationId);
-      // Merge: keep existing IDs to avoid flicker, add new ones
-      const existingIds = new Set(existing.map(m => m.id));
-      const newMsgs = msgs.filter((m: any) => !existingIds.has(m.id));
-      // Also update read status on existing
-      const updated = existing.map(m => {
-        const fresh = msgs.find((fm: any) => fm.id === m.id);
-        return fresh ? { ...m, read: fresh.read } : m;
-      });
-      return [...updated, ...newMsgs];
-    });
+    setMessages(prev => mergeConversationMessages(prev.filter(m => m.conversationId !== conversationId), msgs));
     // Update conversation last message / unread
     setConversations(prev => prev.map(c => {
       if (c.id !== conversationId) return c;
@@ -921,7 +1018,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     }));
   } catch (e) {
-    // silently ignore network errors during polling
+    console.warn('Refresh conversation messages failed', e);
   }
 }, []);
  
@@ -931,7 +1028,7 @@ const refreshUnread = useCallback(async () => {
   try {
     await fetchConversations();
   } catch (e) {
-    // silently ignore
+    console.warn('Refresh unread failed', e);
   }
 }, [currentUser]);
 
@@ -940,8 +1037,8 @@ const refreshUnread = useCallback(async () => {
   const addReview = useCallback(async (review: Omit<Review, 'id' | 'createdAt'>) => {
     try {
       const payload = {
-        trade_id: parseInt(review.tradeId),
-        reviewee_id: parseInt(review.revieweeId),
+        trade_id: Number.parseInt(review.tradeId, 10),
+        reviewee_id: Number.parseInt(review.revieweeId, 10),
         rating: review.rating,
         comment: review.comment,
       };
@@ -1022,7 +1119,7 @@ const refreshUnread = useCallback(async () => {
     : 0;
 
   const requestLocation = useCallback(async () => {
-    if (typeof window === 'undefined' || !('geolocation' in navigator)) return;
+    if (globalThis.window === undefined || !('geolocation' in navigator)) return;
     return new Promise<void>((resolve) => {
       navigator.geolocation.getCurrentPosition(async (pos) => {
         const coords = { lat: pos.coords.latitude, lon: pos.coords.longitude };
@@ -1035,34 +1132,56 @@ const refreshUnread = useCallback(async () => {
             if (meData) setCurrentUser(mapUser(meData));
           }
         } catch (e) {
-          // ignore
+          console.warn('Request location update failed', e);
         }
         resolve();
       }, () => { setShowLocationBanner(true); resolve(); }, { enableHighAccuracy: false, timeout: 10000 });
     });
   }, [currentUser]);
+  const contextValue = React.useMemo(() => ({
+    currentUser, login, logout, register, updateProfile,
+    users, services, trades, messages, conversations, reviews,
+    loading, apiCategoryMap,
+    addService, updateService, deleteService,
+    createTrade, updateTrade, negotiateTrade,
+    requestStart, confirmStart, requestEnd, confirmEnd,
+    sendMessage, startConversation, markConversationRead, loadConversationMessages, refreshConversationMessages, refreshUnread,
+    addReview,
+    adminDeleteUser, adminDeleteService, adminUpdateUser,
+    getUserById, getServiceById, getTradeById,
+    getUserReviews, getUserTrades, getConversationMessages, getUserConversations,
+    totalUnreadMessages,
+    refreshServices, refreshTrades,
+    searchServices,
+    getWsClient: () => wsRef.current,
+    // Location helpers
+    viewerLocation,
+    showLocationBanner,
+    requestLocation: requestLocation,
+    // UI helpers
+    showConfirm,
+    showToast,
+  }), [
+    currentUser, login, logout, register, updateProfile,
+    users, services, trades, messages, conversations, reviews,
+    loading, apiCategoryMap,
+    addService, updateService, deleteService,
+    createTrade, updateTrade, negotiateTrade,
+    requestStart, confirmStart, requestEnd, confirmEnd,
+    sendMessage, startConversation, markConversationRead, loadConversationMessages, refreshConversationMessages, refreshUnread,
+    addReview,
+    adminDeleteUser, adminDeleteService, adminUpdateUser,
+    getUserById, getServiceById, getTradeById,
+    getUserReviews, getUserTrades, getConversationMessages, getUserConversations,
+    totalUnreadMessages,
+    refreshServices, refreshTrades,
+    searchServices,
+    viewerLocation, showLocationBanner, requestLocation,
+    showConfirm, showToast,
+  ]);
 
   return (
-    <AppContext.Provider value={{
-      currentUser, login, logout, register, updateProfile,
-      users, services, trades, messages, conversations, reviews,
-      loading, apiCategoryMap,
-      addService, updateService, deleteService,
-      createTrade, updateTrade, negotiateTrade,
-      sendMessage, startConversation, markConversationRead, loadConversationMessages, refreshConversationMessages, refreshUnread,
-      addReview,
-      adminDeleteUser, adminDeleteService, adminUpdateUser,
-      getUserById, getServiceById, getTradeById,
-      getUserReviews, getUserTrades, getConversationMessages, getUserConversations,
-      totalUnreadMessages,
-      refreshServices, refreshTrades,
-      searchServices,
-      getWsClient: () => wsRef.current,
-      // Location helpers
-      viewerLocation,
-      showLocationBanner,
-      requestLocation: requestLocation,
-    }}>
+    <AppContext.Provider value={contextValue}>
       {showLocationBanner && (
         <div className="fixed bottom-6 left-4 right-4 z-50 flex justify-center">
           <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-md flex items-center gap-4 max-w-3xl">
@@ -1074,6 +1193,16 @@ const refreshUnread = useCallback(async () => {
           </div>
         </div>
       )}
+      {/* Global activity timer */}
+      <ActivityTimerBar />
+      <TradeConfirmModal
+        visible={!!confirmState}
+        title={confirmState?.title}
+        message={confirmState?.message || ''}
+        onConfirm={() => { try { confirmState?.resolve?.(true); } catch (e) { console.error('Error resolving confirm dialog', e); } setConfirmState(null); }}
+        onCancel={() => { try { confirmState?.resolve?.(false); } catch (e) { console.error('Error resolving confirm dialog', e); } setConfirmState(null); }}
+      />
+      <Toasts />
       {children}
     </AppContext.Provider>
   );

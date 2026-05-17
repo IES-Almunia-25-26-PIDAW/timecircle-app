@@ -114,6 +114,16 @@ export const apiNegotiateTrade = (id: number | string, data: any) =>
     body: JSON.stringify(data),
   });
 
+// Trade start/end flows
+export const apiRequestTradeStart = (id: number | string) =>
+  apiFetch(`/api/trades/${id}/start/request/`, { method: 'POST' });
+export const apiConfirmTradeStart = (id: number | string) =>
+  apiFetch(`/api/trades/${id}/start/confirm/`, { method: 'POST' });
+export const apiRequestTradeEnd = (id: number | string) =>
+  apiFetch(`/api/trades/${id}/end/request/`, { method: 'POST' });
+export const apiConfirmTradeEnd = (id: number | string) =>
+  apiFetch(`/api/trades/${id}/end/confirm/`, { method: 'POST' });
+
 // ── CONVERSATIONS ────────────────────────────────────────
 
 export const apiGetConversations = () => apiFetch('/api/conversations/');

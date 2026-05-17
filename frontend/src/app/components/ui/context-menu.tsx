@@ -8,7 +8,7 @@ import { cn } from "./utils";
 
 function ContextMenu({
   ...props
-}: React.ComponentProps<typeof ContextMenuPrimitive.Root>) {
+}: Readonly<React.ComponentProps<typeof ContextMenuPrimitive.Root>>) {
   return <ContextMenuPrimitive.Root data-slot="context-menu" {...props} />;
 }
 
@@ -30,7 +30,7 @@ function ContextMenuGroup({
 
 function ContextMenuPortal({
   ...props
-}: React.ComponentProps<typeof ContextMenuPrimitive.Portal>) {
+}: Readonly<React.ComponentProps<typeof ContextMenuPrimitive.Portal>>) {
   return (
     <ContextMenuPrimitive.Portal data-slot="context-menu-portal" {...props} />
   );
@@ -38,7 +38,7 @@ function ContextMenuPortal({
 
 function ContextMenuSub({
   ...props
-}: React.ComponentProps<typeof ContextMenuPrimitive.Sub>) {
+}: Readonly<React.ComponentProps<typeof ContextMenuPrimitive.Sub>>) {
   return <ContextMenuPrimitive.Sub data-slot="context-menu-sub" {...props} />;
 }
 

@@ -55,15 +55,17 @@ export const Layout: React.FC = () => {
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex transition-colors duration-300">
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/60 dark:bg-black/70 z-40 lg:hidden backdrop-blur-sm"
+        <button
+          type="button"
+          aria-label="Cerrar barra lateral"
           onClick={() => setSidebarOpen(false)}
+          className="fixed inset-0 bg-black/60 dark:bg-black/70 z-40 lg:hidden backdrop-blur-sm"
         />
       )}
 
       {/* Sidebar */}
       <aside className={`
-        fixed inset-y-0 left-0 z-50 w-64
+        fixed inset-y-0 left-0 z-50 w-64 
         bg-white dark:bg-slate-900
         border-r border-slate-200 dark:border-slate-800
         flex flex-col

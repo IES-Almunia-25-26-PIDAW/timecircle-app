@@ -16,6 +16,7 @@ import { Admin } from './pages/Admin';
 import { History } from './pages/History';
 import { TermsOfService } from './pages/TermsOfService';
 import { Contact } from './pages/Contact';
+import { NotFound } from './pages/NotFound';
 
 export const router = createBrowserRouter([
   {
@@ -56,5 +57,9 @@ export const router = createBrowserRouter([
       { path: 'history',      Component: History },
       { path: 'admin',        Component: Admin },
     ],
+  },
+  {
+    path: '*',
+    Component: NotFound,
   },
 ]);
