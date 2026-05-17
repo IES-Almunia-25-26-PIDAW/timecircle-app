@@ -677,7 +677,9 @@ class TradeNegotiationSerializer(serializers.Serializer):
                 trade.auto_cancel_at = trade.scheduled_date + timedelta(hours=5)
                 trade.save(update_fields=['auto_cancel_at'])
         except Exception:
-            pass
+            __import__('logging').exception(
+                'Failed to update auto_cancel_at after trade negotiation',
+            )
 
         create_trade_message(
             trade=trade,
