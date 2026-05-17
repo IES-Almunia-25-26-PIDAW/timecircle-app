@@ -112,6 +112,8 @@ class UserSerializer(serializers.ModelSerializer):
                 if obj.avatar_image and hasattr(obj.avatar_image, 'url'):
                     return obj.avatar_image.url
         except Exception:
+            # Defensive fallback: if avatar storage/file metadata is unavailable
+            # or broken, keep serialization working by using the legacy avatar URL.
             pass
         return obj.avatar or ''
 
