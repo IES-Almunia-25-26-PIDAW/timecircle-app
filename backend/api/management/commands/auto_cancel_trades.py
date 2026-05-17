@@ -38,8 +38,10 @@ class Command(BaseCommand):
                     action='cancelled',
                     content='Intercambio cancelado automáticamente por inactividad',
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                self.stderr.write(
+                    f"Failed to create trade status message for trade #{trade.id}: {exc}"
+                )
 
             # Send email notification to participants if possible
             try:
