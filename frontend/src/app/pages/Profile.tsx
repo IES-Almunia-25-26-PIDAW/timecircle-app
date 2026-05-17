@@ -128,7 +128,7 @@ const EditProfileModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       if (!blob) return;
       const file = new File([blob], 'avatar.jpg', { type: 'image/jpeg' });
       // revoke previous preview URL
-      if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+      URL.revokeObjectURL(avatarPreview);
       const previewUrl = URL.createObjectURL(file);
       setAvatarFile(file);
       setAvatarPreview(previewUrl);
