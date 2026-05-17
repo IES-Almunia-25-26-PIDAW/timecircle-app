@@ -56,7 +56,7 @@ class Command(BaseCommand):
                     from django.core.mail import send_mail
                     from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', None) or settings.EMAIL_HOST_USER or 'no-reply@timecircle.app'
                     send_mail(subject, plain, from_email, recipients, html_message=html_message, fail_silently=True)
-            except Exception:
-                pass
+            except Exception as exc:
+                self.stdout.write(self.style.WARNING(f"Failed to send auto-cancel email for trade #{trade.id}: {exc}"))
 
             self.stdout.write(self.style.SUCCESS(f'Auto-cancelled trade #{trade.id}'))
