@@ -87,10 +87,9 @@ class ConsumerTests(TestCase):
         consumer = PresenceConsumer()
         consumer.scope = {'query_string': b'ws_key=token'}
         # Monkeypatch signing.loads to raise BadSignature
-        import api.consumers as cons_mod
-        real_loads = cons_mod.signing.loads
+        real_loads = signing.loads
         try:
-            cons_mod.signing.loads = lambda *a, **k: (_ for _ in ()).throw(cons_mod.signing.BadSignature())
+            signing.loads = lambda *a, **k: (_ for _ in ()).throw(signing.BadSignature())
             closed = {}
             async def close(code=None):
                 closed.setdefault('code', code)
@@ -99,7 +98,7 @@ class ConsumerTests(TestCase):
             self.assertEqual(closed.get('code'), 4002)
 
             # expired
-            cons_mod.signing.loads = lambda *a, **k: (_ for _ in ()).throw(cons_mod.signing.SignatureExpired())
+            signing.loads = lambda *a, **k: (_ for _ in ()).throw(signing.SignatureExpired())
             closed = {}
             async def close(code=None):
                 closed.setdefault('code', code)
@@ -108,7 +107,7 @@ class ConsumerTests(TestCase):
             self.assertEqual(closed.get('code'), 4001)
 
             # user not found
-            cons_mod.signing.loads = lambda *a, **k: {'user_id': 999999}
+            signing.loads = lambda *a, **k: {'user_id': 999999}
             closed = {}
             async def close(code=None):
                 closed.setdefault('code', code)
@@ -116,7 +115,7 @@ class ConsumerTests(TestCase):
             async_to_sync(consumer.connect)()
             self.assertEqual(closed.get('code'), 4004)
         finally:
-            cons_mod.signing.loads = real_loads
+            signing.loads = real_loads
 
     def test_connect_success(self):
         u = make_user(username='connectuser', email='cu@example.com')
