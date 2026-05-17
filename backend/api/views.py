@@ -975,8 +975,9 @@ class TradeViewSet(viewsets.ModelViewSet):
         try:
             if getattr(trade, 'status', None) == 'cancelled':
                 self._send_trade_notification(trade, request.user, action_label='cancelled')
-        except Exception:
-            pass
+        except Exception as exc:
+            # Notification failures are non-blocking for status updates.
+            print(f"Trade notification error (cancelled): {exc}")
         return Response(TradeSerializer(trade, context={'request': request}).data)
 
     @extend_schema(
@@ -1007,8 +1008,9 @@ class TradeViewSet(viewsets.ModelViewSet):
         # Notify the other participant that the trade was modified (negotiation)
         try:
             self._send_trade_notification(trade, request.user, action_label='modified')
-        except Exception:
-            pass
+        except Exception as exc:
+            # Notification failures are non-blocking for negotiation updates.
+            print(f"Trade notification error (modified): {exc}")
         return Response(TradeSerializer(trade, context={'request': request}).data)
 
     @extend_schema(
