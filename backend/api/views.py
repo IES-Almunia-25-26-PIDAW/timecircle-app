@@ -1327,9 +1327,9 @@ class ReviewViewSet(viewsets.ModelViewSet):
                     plain = strip_tags(html_message)
                     send_mail(subject, plain, from_email, [reviewee.email], fail_silently=False, html_message=html_message)
                 except Exception:
-                    pass
+                    logger.exception("Failed to send review notification email for review_id=%s to user_id=%s", review.id, reviewee.id)
         except Exception:
-            pass
+            logger.exception("Unexpected error while preparing review notification for review_id=%s", review.id)
 
         return Response(ReviewSerializer(review, context={'request': request}).data, status=status.HTTP_201_CREATED)
 
