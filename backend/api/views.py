@@ -1,4 +1,5 @@
 import decimal
+import logging
 from rest_framework import viewsets, status, generics, filters
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.decorators import action
@@ -47,6 +48,8 @@ from .serializers import (
     PasswordResetRequestSerializer, PasswordResetConfirmSerializer
 )
 from .utils_geo import reverse_geocode
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_EMAIL = 'no-reply@timecircle.app'
 NOT_PARTICIPANT_ERROR = 'No eres participante de este intercambio.'
@@ -804,7 +807,12 @@ class TradeViewSet(viewsets.ModelViewSet):
         try:
             self._notify_owner_of_new_trade(trade, request.user)
         except Exception:
-            pass
+            # Keep trade creation successful even if notification delivery fails.
+            logger.exception(
+                "Failed to send new trade notification (trade_id=%s, actor_id=%s)",
+                getattr(trade, 'id', None),
+                getattr(request.user, 'id', None),
+            )
         return Response(
             {
                 'trade': TradeSerializer(trade, context={'request': request}).data,
