@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Outlet, Link, useNavigate, useLocation, Navigate } from 'react-router';
 import {
   Home, Search, ArrowLeftRight, MessageCircle, Star,
-  User, LogOut, Clock, Shield, History, Menu, X, Plus, ChevronDown, Loader2,
+  User, LogOut, Clock, Shield, History, Menu, X, Plus, ChevronDown, Loader2, Calendar,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { ThemeToggle } from './ThemeToggle';
@@ -10,6 +10,7 @@ import { ThemeToggle } from './ThemeToggle';
 const navItems = [
   { path: '/dashboard',   label: 'Inicio',        icon: Home },
   { path: '/services',    label: 'Servicios',      icon: Search },
+  { path: '/calendar',    label: 'Calendario',     icon: Calendar },
   { path: '/trades',      label: 'Intercambios',   icon: ArrowLeftRight },
   { path: '/messages',    label: 'Mensajes',       icon: MessageCircle },
   { path: '/leaderboard', label: 'Ranking',        icon: Star },
@@ -54,15 +55,17 @@ export const Layout: React.FC = () => {
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex transition-colors duration-300">
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/60 dark:bg-black/70 z-40 lg:hidden backdrop-blur-sm"
+        <button
+          type="button"
+          aria-label="Cerrar barra lateral"
           onClick={() => setSidebarOpen(false)}
+          className="fixed inset-0 bg-black/60 dark:bg-black/70 z-40 lg:hidden backdrop-blur-sm"
         />
       )}
 
       {/* Sidebar */}
       <aside className={`
-        fixed inset-y-0 left-0 z-50 w-64
+        fixed inset-y-0 left-0 z-50 w-64 
         bg-white dark:bg-slate-900
         border-r border-slate-200 dark:border-slate-800
         flex flex-col

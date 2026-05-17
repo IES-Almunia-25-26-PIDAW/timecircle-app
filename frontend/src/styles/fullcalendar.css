@@ -1,0 +1,48 @@
+/* Minimal FullCalendar styles to avoid importing package CSS during dev */
+:root{--fc-bg:#ffffff;--fc-border:#e6e9ee;--fc-accent:#2563eb}
+*,*::before,*::after{box-sizing:border-box}
+.fc{font-family:inherit}
+.fc .fc-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem}
+.fc .fc-button{background:#fff;border:1px solid var(--fc-border);padding:0.35rem 0.6rem;border-radius:6px;color:#0f172a}
+.fc .fc-button-primary{background:var(--fc-accent);color:#fff;border-color:var(--fc-accent)}
+.fc .fc-daygrid-day-number{float:right;padding:0.25rem;color:#334155}
+.fc .fc-daygrid-event-harness,
+.fc .fc-event {
+	display: block;
+	background: var(--fc-accent);
+	color: #fff;
+	padding: 0.2rem 0.5rem;
+	border-radius: 6px;
+	margin: 0.125rem 0;
+	width: 100%;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+.fc .fc-scroller{overflow:auto}
+.fc .fc-daygrid-day-frame{min-height:90px;padding:0.25rem}
+/* basic layout fixes */
+.fc .fc-col-header-cell{padding:0.5rem 0}
+
+/* make sure the calendar fills its container */
+.fc{width:100%}
+
+/* responsive tweaks */
+@media (max-width:768px){.fc .fc-toolbar{flex-direction:column;gap:0.5rem}.fc .fc-toolbar .fc-toolbar-chunk{width:100%;display:flex;justify-content:center}}
+
+/* Tooltip shown when hovering an event */
+.fc-event-tooltip{
+	position:absolute;
+	z-index:9999;
+	background:#0f172a;
+	color:#fff;
+	border-radius:8px;
+	padding:0.75rem;
+	box-shadow:0 6px 20px rgba(2,6,23,0.6);
+	min-width:220px;
+	max-width:360px;
+	pointer-events:none;
+	transform:translate(-50%,-110%);
+}
+.fc-event-tooltip .title{font-weight:600;margin-bottom:0.25rem}
+.fc-event-tooltip .meta{font-size:0.85rem;color:rgba(255,255,255,0.9)}

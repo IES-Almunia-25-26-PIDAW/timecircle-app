@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import {
   Clock, TrendingUp, ArrowLeftRight, Star, Plus,
-  ChevronRight, CheckCircle, AlertCircle, Hourglass
+  ChevronRight, Hourglass
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { CATEGORIES, SLUG_TO_API_CAT } from '../data/mockData';
@@ -38,8 +38,10 @@ const getLastSixMonthsActivity = (trades: ReturnType<typeof useApp>['trades']) =
   return months;
 };
 
+type BadgeInfo = { label: string; className: string };
+
 const TradeStatusBadge: React.FC<{ status: string }> = ({ status }) => {
-  const map: Record<string, { label: string; className: string }> = {
+  const map: Record<string, BadgeInfo> = {
     pending: { label: 'Pendiente', className: 'bg-amber-100 text-amber-700' },
     accepted: { label: 'Aceptado', className: 'bg-blue-100 text-blue-700' },
     in_progress: { label: 'En curso', className: 'bg-purple-100 text-purple-700' },
@@ -52,34 +54,34 @@ const TradeStatusBadge: React.FC<{ status: string }> = ({ status }) => {
 
 export const Dashboard: React.FC = () => {
   const { currentUser, getUserTrades, services, getServiceById, getUserById, reviews, viewerLocation } = useApp();
-  if (!currentUser) return null;
 
-  const [typeFilter, setTypeFilter] = useState<'all' | 'offer' | 'request'>('all');
+  type TypeFilter = 'all' | 'offer' | 'request';
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
 
-  const myTrades = getUserTrades(currentUser.id);
+  const myTrades = useMemo(() => (currentUser ? getUserTrades(currentUser.id) : []), [currentUser, getUserTrades]);
   const activityData = useMemo(() => getLastSixMonthsActivity(myTrades), [myTrades]);
-  const activeTrades = myTrades.filter(t => ['pending', 'accepted', 'in_progress'].includes(t.status));
-  const recentTrades = myTrades.slice(0, 4);
-  const myServices = services.filter(s => s.userId === currentUser.id);
-  const recentServices = services.filter(s => s.userId !== currentUser.id && s.status === 'active').slice(0, 4);
-  const myReviews = reviews.filter(r => r.revieweeId === currentUser.id).slice(0, 3);
+  const activeTrades = useMemo(() => myTrades.filter(t => ['pending', 'accepted', 'in_progress'].includes(t.status)), [myTrades]);
+  const myServices = useMemo(() => (currentUser ? services.filter(s => s.userId === currentUser.id) : []), [services, currentUser]);
+  const recentServices = useMemo(() => (currentUser ? services.filter(s => s.userId !== currentUser.id && s.status === 'active').slice(0, 4) : []), [services, currentUser]);
+  const myReviews = useMemo(() => (currentUser ? reviews.filter(r => r.revieweeId === currentUser.id).slice(0, 3) : []), [reviews, currentUser]);
 
   const filteredServices = useMemo(() => (
-    services.filter(s => (typeFilter === 'all' ? true : s.type === typeFilter) && s.status === 'active' && s.userId !== currentUser.id)
+    services.filter(s => (typeFilter === 'all' ? true : s.type === typeFilter) && s.status === 'active' && s.userId !== currentUser?.id)
   ), [services, typeFilter, currentUser]);
 
   const mapCenter = useMemo(() => {
     if (viewerLocation) return viewerLocation;
-    if (typeof currentUser.latitude === 'number' && typeof currentUser.longitude === 'number') {
+    if (typeof currentUser?.latitude === 'number' && typeof currentUser?.longitude === 'number') {
       return { lat: currentUser.latitude, lon: currentUser.longitude };
     }
     return { lat: 40.4168, lon: -3.7038 };
-  }, [viewerLocation, currentUser.latitude, currentUser.longitude]);
+  }, [viewerLocation, currentUser?.latitude, currentUser?.longitude]);
 
   const servicesForMap = useMemo(() => filteredServices.map(s => {
-    const user = (s as any).user ?? getUserById(s.userId);
+    const user = s.user ?? getUserById(s.userId);
     return {
       id: s.id,
+      type: s.type,
       title: s.title,
       credits: s.credits,
       category: { name: SLUG_TO_API_CAT[s.category] || s.category },
@@ -107,10 +109,10 @@ export const Dashboard: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-slate-900" style={{ fontSize: '1.5rem', fontWeight: 700 }}>
-            Hola, {currentUser.name.split(' ')[0]} 👋
+            Hola, {currentUser?.name.split(' ')[0]} 👋
           </h1>
           <p className="text-slate-500" style={{ fontSize: '0.875rem' }}>
-            {currentUser.location} · Miembro desde {new Date(currentUser.memberSince).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}
+            {currentUser?.location} · Miembro desde {new Date(currentUser!.memberSince).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}
           </p>
         </div>
         <Link
@@ -128,9 +130,9 @@ export const Dashboard: React.FC = () => {
         <div className="bg-white border border-slate-100 rounded-2xl p-5">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-slate-900" style={{ fontSize: '1rem', fontWeight: 600 }}>Servicios cercanos</h2>
-            <div className="flex items-center gap-2">
-              <label className="text-slate-500 text-sm mr-2">Tipo:</label>
-              <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as any)} className="border rounded px-2 py-1 text-sm">
+              <div className="flex items-center gap-2">
+              <label htmlFor="type-filter" className="text-slate-500 text-sm mr-2">Tipo:</label>
+              <select id="type-filter" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as TypeFilter)} className="border rounded px-2 py-1 text-sm">
                 <option value="all">Todos</option>
                 <option value="offer">Ofertas</option>
                 <option value="request">Solicitudes</option>
@@ -151,7 +153,7 @@ export const Dashboard: React.FC = () => {
               <Clock className="w-4 h-4" />
             </div>
           </div>
-          <div style={{ fontSize: '2.5rem', fontWeight: 700, lineHeight: 1 }}>{currentUser.credits}</div>
+          <div style={{ fontSize: '2.5rem', fontWeight: 700, lineHeight: 1 }}>{currentUser?.credits}</div>
           <div style={{ fontSize: '0.8rem', opacity: 0.75 }}>horas disponibles</div>
         </div>
 
@@ -162,7 +164,7 @@ export const Dashboard: React.FC = () => {
               <ArrowLeftRight className="w-4 h-4 text-amber-600" />
             </div>
           </div>
-          <div className="text-slate-900" style={{ fontSize: '2rem', fontWeight: 700 }}>{currentUser.completedTrades}</div>
+          <div className="text-slate-900" style={{ fontSize: '2rem', fontWeight: 700 }}>{currentUser?.completedTrades}</div>
           <div className="text-slate-400" style={{ fontSize: '0.8rem' }}>completados</div>
         </div>
 
@@ -173,8 +175,8 @@ export const Dashboard: React.FC = () => {
               <Star className="w-4 h-4 text-purple-600" />
             </div>
           </div>
-          <div className="text-slate-900" style={{ fontSize: '2rem', fontWeight: 700 }}>{currentUser.rating > 0 ? currentUser.rating.toFixed(1) : '–'}</div>
-          <div className="text-slate-400" style={{ fontSize: '0.8rem' }}>{currentUser.totalReviews} valoraciones</div>
+          <div className="text-slate-900" style={{ fontSize: '2rem', fontWeight: 700 }}>{currentUser!.rating > 0 ? currentUser?.rating.toFixed(1) : '-'}</div>
+          <div className="text-slate-400" style={{ fontSize: '0.8rem' }}>{currentUser?.totalReviews} valoraciones</div>
         </div>
 
         <div className="bg-white border border-slate-100 rounded-2xl p-5">
@@ -184,13 +186,13 @@ export const Dashboard: React.FC = () => {
               <TrendingUp className="w-4 h-4 text-green-600" />
             </div>
           </div>
-          <div className="text-slate-900" style={{ fontSize: '2rem', fontWeight: 700 }}>{currentUser.hoursGiven}</div>
+          <div className="text-slate-900" style={{ fontSize: '2rem', fontWeight: 700 }}>{currentUser?.hoursGiven}</div>
           <div className="text-slate-400" style={{ fontSize: '0.8rem' }}>horas de ayuda</div>
         </div>
       </div>
 
       {/* Badge */}
-      {currentUser.badge && (
+      {currentUser?.badge && (
         <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${badgeConfig[currentUser.badge].className}`}>
           <span style={{ fontSize: '1.5rem' }}>{badgeConfig[currentUser.badge].icon}</span>
           <div>
@@ -241,7 +243,7 @@ export const Dashboard: React.FC = () => {
             <div className="space-y-3">
               {activeTrades.slice(0, 3).map(trade => {
                 const service = getServiceById(trade.serviceId);
-                const other = getUserById(trade.offererId === currentUser.id ? trade.requesterId : trade.offererId);
+                const other = getUserById(trade.offererId === currentUser?.id ? trade.requesterId : trade.offererId);
                 return (
                   <div key={trade.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
                     <img src={other?.avatar} alt="" className="w-8 h-8 rounded-full" />

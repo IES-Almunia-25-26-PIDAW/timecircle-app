@@ -21,9 +21,12 @@ class User(AbstractUser):
         GOLD   = 'gold',   _('Oro')
         SILVER = 'silver', _('Plata')
         BRONZE = 'bronze', _('Bronce')
+        NONE   = '',       _('Ninguno')
 
     # ── Perfil ──────────────────────────────
     avatar   = models.URLField(max_length=500, blank=True, default='')
+    # Uploaded avatar image (preferred when present). Stored under MEDIA_ROOT/avatars/...
+    avatar_image = models.ImageField(upload_to='avatars/%Y/%m/%d', blank=True, null=True)
     bio      = models.TextField(max_length=500, blank=True, default='')
     # Human-readable location (free text) kept for display
     location = models.CharField(max_length=100, blank=True, default='')
@@ -65,7 +68,7 @@ class User(AbstractUser):
     rating           = models.DecimalField(max_digits=3, decimal_places=2, default=0.00)
     total_reviews    = models.PositiveIntegerField(default=0)
     completed_trades = models.PositiveIntegerField(default=0)
-    badge            = models.CharField(max_length=10, choices=Badge.choices, blank=True)
+    badge            = models.CharField(max_length=10, choices=Badge.choices, blank=True, default='')
 
     class Meta:
         db_table = 'user_account'
@@ -84,7 +87,7 @@ class User(AbstractUser):
         elif self.completed_trades >= 5:
             self.badge = self.Badge.BRONZE
         else:
-            self.badge = None
+            self.badge = self.Badge.NONE
         self.save(update_fields=['badge'])
 
     def update_rating(self):
@@ -213,6 +216,15 @@ class Trade(models.Model):
     last_proposed_at = models.DateTimeField(null=True, blank=True)
     created_at     = models.DateTimeField(auto_now_add=True)
     completed_at   = models.DateTimeField(null=True, blank=True)
+    # Activity / start/end tracking
+    started_at     = models.DateTimeField(null=True, blank=True)
+    started_by     = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='trades_started'
+    )
+    # Track which participants have confirmed the end (store user ids or roles)
+    end_confirmations = models.JSONField(default=list, blank=True)
+    # If the trade is not started within this datetime it will be auto-cancelled
+    auto_cancel_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'trade'

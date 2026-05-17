@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { Link } from 'react-router';
 import {
   ArrowLeftRight, Clock, CheckCircle, XCircle, PlayCircle,
-  Star, MessageCircle, Calendar, ChevronDown, ChevronUp
+  Star, Calendar, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { canRequestStart } from '../utils/tradeHelpers';
 import { Trade } from '../data/mockData';
 
 const STATUS_CONFIG = {
@@ -66,25 +67,30 @@ const ReviewModal: React.FC<{
             </div>
 
             <div className="mb-4">
-              <label className="block text-slate-700 mb-2" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Puntuación</label>
-              <div className="flex gap-2">
-                {[1, 2, 3, 4, 5].map(s => (
-                  <button
-                    key={s}
-                    onMouseEnter={() => setHoveredRating(s)}
-                    onMouseLeave={() => setHoveredRating(0)}
-                    onClick={() => setRating(s)}
-                    className="transition-transform hover:scale-110"
-                  >
-                    <Star className={`w-8 h-8 ${s <= (hoveredRating || rating) ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`} />
-                  </button>
-                ))}
-              </div>
+              <fieldset className="mb-2">
+                <legend className="block text-slate-700" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Puntuación</legend>
+                <div className="flex gap-2 mt-2" role="radiogroup" aria-label="Puntuación">
+                  {[1, 2, 3, 4, 5].map(s => (
+                    <button
+                      key={s}
+                      onMouseEnter={() => setHoveredRating(s)}
+                      onMouseLeave={() => setHoveredRating(0)}
+                      onClick={() => setRating(s)}
+                      className="transition-transform hover:scale-110"
+                      aria-pressed={s <= (hoveredRating || rating)}
+                      aria-label={`Puntuación ${s}`}
+                    >
+                      <Star className={`w-8 h-8 ${s <= (hoveredRating || rating) ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`} />
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
             </div>
 
             <div className="mb-5">
-              <label className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Comentario</label>
+              <label htmlFor="reviewComment" className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Comentario</label>
               <textarea
+                id="reviewComment"
                 value={comment}
                 onChange={e => {
                   const nextComment = e.target.value;
@@ -136,7 +142,8 @@ const ReviewModal: React.FC<{
 };
 
 const TradeCard: React.FC<{ trade: Trade }> = ({ trade }) => {
-  const { currentUser, getServiceById, getUserById, updateTrade, startConversation, reviews } = useApp();
+  const { currentUser, getServiceById, getUserById, updateTrade, reviews,
+    requestStart, confirmStart, requestEnd, confirmEnd, showConfirm } = useApp();
   const service = getServiceById(trade.serviceId);
   const other = getUserById(trade.offererId === currentUser?.id ? trade.requesterId : trade.offererId);
   const isOfferer = trade.offererId === currentUser?.id;
@@ -217,26 +224,83 @@ const TradeCard: React.FC<{ trade: Trade }> = ({ trade }) => {
 
               {/* Start progress */}
               {trade.status === 'accepted' && (
-                <button
-                  onClick={() => updateTrade(trade.id, { status: 'in_progress' })}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 text-white hover:bg-purple-700 rounded-xl transition-colors"
-                  style={{ fontSize: '0.8rem' }}
-                >
-                  <PlayCircle className="w-3.5 h-3.5" />
-                  Iniciar
-                </button>
+                <>
+                  {(() => {
+                    const chk = canRequestStart(trade);
+                    // No start requested yet
+                    if (!trade.startedAt) {
+                      return (
+                        <button
+                          onClick={async () => {
+                            if (!(await showConfirm('Solicitar inicio de la actividad?'))) return;
+                            try { await requestStart(trade.id); } catch (e) { console.error(e); }
+                          }}
+                          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl transition-colors ${chk.allowed ? 'bg-purple-600 text-white hover:bg-purple-700' : 'bg-purple-100 text-purple-300 cursor-not-allowed'}`}
+                          style={{ fontSize: '0.8rem' }}
+                          disabled={!chk.allowed}
+                          title={chk.message || undefined}
+                          aria-disabled={!chk.allowed}
+                        >
+                          <PlayCircle className="w-3.5 h-3.5" />
+                          Solicitar inicio
+                        </button>
+                      );
+                    }
+
+                    // Start already requested by current user
+                    if (trade.startedById === currentUser?.id) {
+                      return (
+                        <button className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-purple-100 text-purple-400 cursor-default" style={{ fontSize: '0.8rem' }} disabled>
+                          <PlayCircle className="w-3.5 h-3.5" />
+                          Inicio solicitado
+                        </button>
+                      );
+                    }
+
+                    // Other participant requested => show confirm
+                    return (
+                      <button
+                        onClick={async () => {
+                          if (!(await showConfirm('Confirmar inicio solicitado por la otra parte?'))) return;
+                          try { await confirmStart(trade.id); } catch (e) { console.error(e); }
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-2 border border-teal-600 text-teal-600 hover:bg-teal-50 rounded-xl transition-colors"
+                        style={{ fontSize: '0.8rem' }}
+                      >
+                        <PlayCircle className="w-3.5 h-3.5" />
+                        Confirmar inicio
+                      </button>
+                    );
+                  })()}
+                </>
               )}
 
               {/* Complete */}
               {trade.status === 'in_progress' && (
-                <button
-                  onClick={() => updateTrade(trade.id, { status: 'completed', completedAt: new Date().toISOString().split('T')[0] })}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-green-600 text-white hover:bg-green-700 rounded-xl transition-colors"
-                  style={{ fontSize: '0.8rem' }}
-                >
-                  <CheckCircle className="w-3.5 h-3.5" />
-                  Marcar completado
-                </button>
+                <>
+                  <button
+                    onClick={async () => {
+                      if (!(await showConfirm('Solicitar finalización de la actividad?'))) return;
+                      try { await requestEnd(trade.id); } catch (e) { console.error(e); }
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-yellow-500 text-white hover:bg-yellow-600 rounded-xl transition-colors"
+                    style={{ fontSize: '0.8rem' }}
+                  >
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    Solicitar fin
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!(await showConfirm('Confirmar finalización solicitada por la otra parte?'))) return;
+                      try { await confirmEnd(trade.id); } catch (e) { console.error(e); }
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-green-600 text-white hover:bg-green-700 rounded-xl transition-colors"
+                    style={{ fontSize: '0.8rem' }}
+                  >
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    Confirmar fin
+                  </button>
+                </>
               )}
 
               {/* Review */}
@@ -288,10 +352,10 @@ const TradeCard: React.FC<{ trade: Trade }> = ({ trade }) => {
 
 export const Trades: React.FC = () => {
   const { currentUser, getUserTrades } = useApp();
+  const [activeTab, setActiveTab] = useState<'active' | 'completed' | 'all'>('active');
   if (!currentUser) return null;
 
   const trades = getUserTrades(currentUser.id);
-  const [activeTab, setActiveTab] = useState<'active' | 'completed' | 'all'>('active');
 
   const filtered = trades.filter(t => {
     if (activeTab === 'active') return ['pending', 'accepted', 'in_progress'].includes(t.status);

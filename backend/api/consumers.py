@@ -8,7 +8,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-WS_KEY_MAX_AGE = 120  # seconds
+WS_KEY_MAX_AGE_SECONDS = 120
 
 class PresenceConsumer(AsyncWebsocketConsumer):
     def __init__(self, *args, **kwargs):
@@ -25,7 +25,7 @@ class PresenceConsumer(AsyncWebsocketConsumer):
         user = None
         if ws_key:
             try:
-                payload = signing.loads(ws_key, max_age=WS_KEY_MAX_AGE)
+                payload = signing.loads(ws_key, max_age=WS_KEY_MAX_AGE_SECONDS)
                 user_id = payload.get('user_id')
                 user = await self.get_user(user_id)
             except signing.SignatureExpired:
@@ -140,7 +140,7 @@ class PresenceConsumer(AsyncWebsocketConsumer):
                 },
             )
         except Exception as e:
-            logger.error('Error sending message: %s', e)
+            logger.exception('Error sending message: %s', e)
 
 
     async def _handle_heartbeat(self, data: dict):
@@ -199,6 +199,16 @@ class PresenceConsumer(AsyncWebsocketConsumer):
             'timestamp': event.get('timestamp'),
             'read': event.get('read', False),
         }))
+
+    async def trade_event(self, event):
+        try:
+            payload = event.get('payload') or event
+            await self.send(text_data=json.dumps({
+                'type': 'trade.event',
+                'payload': payload,
+            }))
+        except Exception:
+            logger.exception('Failed to forward trade_event')
 
     # Helpers
     async def get_user(self, user_id):

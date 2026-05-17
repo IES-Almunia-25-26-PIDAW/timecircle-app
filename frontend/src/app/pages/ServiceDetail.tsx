@@ -1,19 +1,154 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import {
-  Clock, Star, ArrowLeft, MessageCircle, Calendar,
-  MapPin, Tag, CheckCircle, AlertCircle, Pencil, Trash2, Loader2,
+  Star, ArrowLeft, MessageCircle, Calendar,
+  MapPin, Tag, CheckCircle, AlertCircle, Trash2, Loader2,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { CATEGORIES } from '../data/mockData';
 import ProfileMap from '../components/ProfileMap';
+import { canRequestStart } from '../utils/tradeHelpers';
+
+// Helpers extracted to reduce cognitive complexity in the component
+const parseSelected = (dateStr: string, timeStr: string) => {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const [hh, mm] = timeStr.split(':').map(Number);
+  return new Date(y, m - 1, d, hh || 0, mm || 0);
+};
+
+const isOverlap = (selected: Date, selectedEnd: Date, myTrades: any[], getServiceById: (id: string) => any) => {
+  for (const t of myTrades) {
+    if (!t.scheduledDate) continue;
+    if (!['pending','accepted','in_progress'].includes(t.status)) continue;
+    const otherStart = new Date(t.scheduledDate);
+    const otherService = getServiceById(t.serviceId);
+    const otherDuration = otherService?.duration || 0;
+    const otherEnd = new Date(otherStart.getTime() + otherDuration * 60000);
+    if (selected.getTime() < otherEnd.getTime() && otherStart.getTime() < selectedEnd.getTime()) return true;
+  }
+  return false;
+};
+
+const validateBookingParams = (
+  scheduledDate: string,
+  scheduledTime: string,
+  creditsAmount: number | '',
+  service: any,
+  currentUser: any,
+  trades: any[],
+  getServiceById: (id: string) => any,
+) => {
+  if (!scheduledDate) return { error: 'Por favor selecciona una fecha' };
+  if (!scheduledTime) return { error: 'Por favor selecciona una hora' };
+  const proposedCredits = Number(creditsAmount || service.credits);
+  if (!Number.isFinite(proposedCredits) || proposedCredits < 1) return { error: 'Los créditos propuestos deben ser al menos 1.' };
+  if (!currentUser?.isAdmin && service.type === 'offer' && currentUser && currentUser.credits < proposedCredits) {
+    return { error: `No tienes suficientes créditos. Necesitas ${proposedCredits}h y tienes ${currentUser.credits}h.` };
+  }
+  const myTrades = trades.filter(t => (t.requesterId === currentUser?.id || t.offererId === currentUser?.id));
+  const sameService = myTrades.find(t => t.serviceId === service.id && ['pending','accepted','in_progress'].includes(t.status));
+  if (sameService) return { error: 'Ya tienes una reserva activa para este servicio.' };
+
+  const selected = parseSelected(scheduledDate, scheduledTime);
+  const selectedEnd = new Date(selected.getTime() + (service.duration || 0) * 60000);
+  if (isOverlap(selected, selectedEnd, myTrades, getServiceById)) return { error: 'Tienes otra cita que se solapa en ese horario. Elige otra hora o fecha.' };
+  return { proposedCredits };
+};
+
+const BookingForm: React.FC<{
+  scheduledDate: string;
+  scheduledTime: string;
+  setScheduledDate: (v: string) => void;
+  setScheduledTime: (v: string) => void;
+  creditsAmount: number | '';
+  setCreditsAmount: (v: number | '') => void;
+  notes: string;
+  setNotes: (v: string) => void;
+  minDateStr: string;
+  bookError: string;
+  booking: boolean;
+  onConfirm: () => void;
+  service: any;
+}> = ({ scheduledDate, scheduledTime, setScheduledDate, setScheduledTime, creditsAmount, setCreditsAmount, notes, setNotes, minDateStr, bookError, booking, onConfirm, service }) => (
+  <div className="bg-white border border-teal-200 rounded-2xl p-5">
+    <h3 className="text-slate-700 mb-4" style={{ fontWeight: 600, fontSize: '0.9rem' }}>Propuesta de reserva</h3>
+    {bookError && (
+      <div className="flex items-center gap-2 bg-red-50 text-red-700 px-3 py-2 rounded-xl mb-3">
+        <AlertCircle className="w-4 h-4" />
+        <span style={{ fontSize: '0.8rem' }}>{bookError}</span>
+      </div>
+    )}
+    <div className="space-y-3">
+      <div>
+        <label htmlFor="booking-date" className="block text-slate-600 mb-1" style={{ fontSize: '0.8rem', fontWeight: 500 }}>Fecha propuesta</label>
+        <input id="booking-date" type="date" value={scheduledDate} onChange={e => setScheduledDate(e.target.value)} min={minDateStr} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500" style={{ fontSize: '0.875rem' }} />
+      </div>
+      <div>
+        <label htmlFor="booking-time" className="block text-slate-600 mb-1" style={{ fontSize: '0.8rem', fontWeight: 500 }}>Hora propuesta</label>
+        <input id="booking-time" type="time" value={scheduledTime} onChange={e => setScheduledTime(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500" style={{ fontSize: '0.875rem' }} />
+      </div>
+      <div>
+        <label htmlFor="booking-credits" className="block text-slate-600 mb-1" style={{ fontSize: '0.8rem', fontWeight: 500 }}>Créditos propuestos</label>
+        <input id="booking-credits" type="number" min={1} max={20} value={creditsAmount === '' ? service.credits : creditsAmount} onChange={e => setCreditsAmount(Number(e.target.value))} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500" style={{ fontSize: '0.875rem' }} />
+      </div>
+      <div>
+        <label htmlFor="booking-notes" className="block text-slate-600 mb-1" style={{ fontSize: '0.8rem', fontWeight: 500 }}>Mensaje y notas (opcional)</label>
+        <textarea id="booking-notes" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Detalles adicionales..." rows={3} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 resize-none" style={{ fontSize: '0.875rem' }} />
+      </div>
+      <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2" style={{ fontSize: '0.8rem' }}>
+        <span className="text-amber-700">La otra persona podrá aceptar, cancelar o negociar esta propuesta.</span>
+      </div>
+      <button onClick={onConfirm} disabled={booking} className="w-full py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl transition-colors disabled:opacity-60 flex items-center justify-center gap-2" style={{ fontWeight: 600, fontSize: '0.875rem' }}>
+        {booking && <Loader2 className="w-4 h-4 animate-spin" />}
+        {booking ? 'Enviando...' : 'Confirmar solicitud'}
+      </button>
+    </div>
+  </div>
+);
+
+const ActiveTradeActions: React.FC<{
+  myActiveTrade: any;
+  currentUser: any;
+  handleRequestStart: () => void;
+  handleConfirmStart: () => void;
+  handleRequestEnd: () => void;
+  handleConfirmEnd: () => void;
+}> = ({ myActiveTrade, currentUser, handleRequestStart, handleConfirmStart, handleRequestEnd, handleConfirmEnd }) => {
+  if (!myActiveTrade) return null;
+  if (myActiveTrade.status === 'accepted') {
+    const chk = canRequestStart(myActiveTrade);
+    if (!myActiveTrade.startedAt) {
+      return (
+        <button onClick={handleRequestStart} className={`flex-1 py-2 rounded-xl ${chk.allowed ? 'bg-purple-600 text-white' : 'bg-purple-100 text-purple-300 cursor-not-allowed'}`} disabled={!chk.allowed} title={chk.message || undefined} aria-disabled={!chk.allowed}>Solicitar inicio</button>
+      );
+    }
+    if (myActiveTrade.startedById === currentUser?.id) {
+      return (
+        <button className="flex-1 py-2 rounded-xl bg-purple-100 text-purple-400 cursor-default" disabled>Inicio solicitado</button>
+      );
+    }
+    return (
+      <button onClick={handleConfirmStart} className="flex-1 py-2 border border-teal-600 text-teal-600 rounded-xl">Confirmar inicio</button>
+    );
+  }
+  if (myActiveTrade.status === 'in_progress') {
+    return (
+      <>
+        <button onClick={handleRequestEnd} className="flex-1 py-2 bg-yellow-500 text-white rounded-xl">Solicitar fin</button>
+        <button onClick={handleConfirmEnd} className="flex-1 py-2 bg-green-600 text-white rounded-xl">Confirmar fin</button>
+      </>
+    );
+  }
+  return null;
+};
 
 export const ServiceDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const {
     currentUser, getServiceById, getUserById, getUserReviews,
-    createTrade, startConversation, deleteService,
+    createTrade, startConversation, deleteService, trades,
+    requestStart, confirmStart, requestEnd, confirmEnd, showConfirm,
   } = useApp();
 
   const [scheduledDate, setScheduledDate] = useState('');
@@ -39,53 +174,45 @@ export const ServiceDetail: React.FC = () => {
   const ownerReviews = getUserReviews(service.userId);
   const cat          = CATEGORIES.find(c => c.id === service.category);
   const isOwner      = currentUser?.id === service.userId;
+  const completedOnService = trades.filter(t => t.serviceId === service.id && t.status === 'completed').length;
   const ownerLat = owner?.latitude ?? null;
   const ownerLon = owner?.longitude ?? null;
   const canShowExact = owner && (owner.shareExactLocation || (currentUser && currentUser.id === owner.id) || currentUser?.isAdmin);
   const hasExactLocation = canShowExact && Number.isFinite(ownerLat) && Number.isFinite(ownerLon);
   const minDateStr = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  // Use the extracted validateBookingParams helper
+  const validateBooking = () => validateBookingParams(scheduledDate, scheduledTime, creditsAmount, service, currentUser, trades, getServiceById);
+
+  // derive owner location string without nested ternaries
+  let ownerLocation = 'Ubicación no disponible';
+  if (owner?.city) {
+    ownerLocation = owner.city + (owner.country ? ', ' + owner.country : '');
+  }
 
   const handleBook = async () => {
     setBookError('');
-    if (!scheduledDate) { setBookError('Por favor selecciona una fecha'); return; }
-    if (!scheduledTime) { setBookError('Por favor selecciona una hora'); return; }
-    const proposedCredits = Number(creditsAmount || service.credits);
-    if (!Number.isFinite(proposedCredits) || proposedCredits < 1) {
-      setBookError('Los créditos propuestos deben ser al menos 1.');
-      return;
-    }
-    if (!isOwner && currentUser && service.type === 'offer' && currentUser.credits < proposedCredits) {
-      setBookError(`No tienes suficientes créditos. Necesitas ${proposedCredits}h y tienes ${currentUser.credits}h.`);
-      return;
-    }
-    setBooking(true);
-    // Validar que la fecha seleccionada sea al menos 1 día desde hoy
-    const [y, m, d] = scheduledDate.split('-').map(Number);
-    const [hh, mm] = scheduledTime.split(':').map(Number);
-    const selected = new Date(y, m - 1, d, hh || 0, mm || 0);
-    const now = new Date();
-    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const minAllowed = new Date(todayMidnight.getTime() + 24 * 60 * 60 * 1000); // mañana 00:00
-    if (selected.getTime() < minAllowed.getTime()) {
-      const msg = 'La fecha no puede ser anterior a hoy ni con menos de 1 día de antelación.';
-      setBookError(msg);
-      setBooking(false);
-      return;
-    }
     try {
+      const v = validateBooking();
+      if ((v as any).error) { setBookError((v as any).error); return; }
+      const proposedCredits = (v as any).proposedCredits as number;
+
+      const selected2 = parseSelected(scheduledDate, scheduledTime);
+      const todayMidnight = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+      const minAllowed = new Date(todayMidnight.getTime() + 24 * 60 * 60 * 1000);
+      if (selected2.getTime() < minAllowed.getTime()) { setBookError('La fecha no puede ser anterior a hoy ni con menos de 1 día de antelación.'); return; }
+
+      setBooking(true);
       const result = await createTrade({
         serviceId:     service.id,
         offererId:     service.type === 'offer' ? service.userId : currentUser!.id,
         requesterId:   service.type === 'offer' ? currentUser!.id : service.userId,
         status:        'pending',
-        scheduledDate: selected.toISOString(),
+        scheduledDate: selected2.toISOString(),
         creditsAmount: proposedCredits,
         notes,
       });
       setBooked(true);
-      if (result?.conversationId) {
-        navigate(`/messages?conv=${result.conversationId}`);
-      }
+      if (result?.conversationId) navigate(`/messages?conv=${result.conversationId}`);
     } catch (e: any) {
       const errMsg = e?.detail || e?.non_field_errors?.[0] || e?.message || 'Error al crear el intercambio';
       setBookError(errMsg);
@@ -102,8 +229,28 @@ export const ServiceDetail: React.FC = () => {
     if (convId) navigate(`/messages?conv=${convId}`);
   };
 
+  // Trade actions for this service (if current user is participant)
+  const myActiveTrade = trades.find(t => t.serviceId === service.id && ['accepted', 'in_progress'].includes(t.status) && (t.offererId === currentUser?.id || t.requesterId === currentUser?.id));
+
+  const handleRequestStart = async () => {
+    if (!(await showConfirm('Solicitar inicio de la actividad?'))) return;
+    try { await requestStart(myActiveTrade!.id); } catch (e) { console.error(e); }
+  };
+  const handleConfirmStart = async () => {
+    if (!(await showConfirm('Confirmar inicio solicitado por la otra parte?'))) return;
+    try { await confirmStart(myActiveTrade!.id); } catch (e) { console.error(e); }
+  };
+  const handleRequestEnd = async () => {
+    if (!(await showConfirm('Solicitar finalización de la actividad?'))) return;
+    try { await requestEnd(myActiveTrade!.id); } catch (e) { console.error(e); }
+  };
+  const handleConfirmEnd = async () => {
+    if (!(await showConfirm('Confirmar finalización solicitada por la otra parte?'))) return;
+    try { await confirmEnd(myActiveTrade!.id); } catch (e) { console.error(e); }
+  };
+
   const handleDelete = async () => {
-    if (window.confirm('¿Eliminar este servicio?')) {
+    if (await showConfirm('¿Eliminar este servicio?')) {
       await deleteService(service.id);
       navigate('/services');
     }
@@ -172,7 +319,18 @@ export const ServiceDetail: React.FC = () => {
               </div>
             )}
 
-            {isOwner && (
+            {/* Wider provider map (moved to main for more horizontal space) */}
+            {(hasExactLocation || owner?.city) && (
+              <div className="mb-5">
+                <h3 className="text-slate-700 mb-2" style={{ fontWeight: 600, fontSize: '0.9rem' }}>Ubicación del proveedor</h3>
+                <div style={{ height: 320, width: '100%' }}>
+                  <ProfileMap lat={Number(ownerLat)} lon={Number(ownerLon)} zoom={12} />
+                </div>
+                <div className="text-slate-500 text-sm mt-2">Se muestra la ubicación guardada en el perfil del proveedor.</div>
+              </div>
+            )}
+
+                    {isOwner && (
               <div className="mt-5 pt-5 border-t border-slate-100 flex gap-2">
                 <button
                   onClick={handleDelete}
@@ -183,7 +341,7 @@ export const ServiceDetail: React.FC = () => {
                   Eliminar
                 </button>
               </div>
-            )}
+                    )}
           </div>
 
             {/* Distance indicator for the service (if available) */}
@@ -226,6 +384,13 @@ export const ServiceDetail: React.FC = () => {
                 })}
               </div>
             </div>
+          ) || (
+            <div className="bg-white border border-slate-100 rounded-2xl p-6 text-center">
+              <h4 className="text-slate-900 mb-4" style={{ fontSize: '1rem', fontWeight: 600 }}>Sin valoraciones</h4>
+              <p className="text-slate-700" style={{ fontSize: '0.8rem' }}>
+                Aún no hay valoraciones para este proveedor. ¡Sé el primero!
+              </p>
+            </div>
           )}
         </div>
 
@@ -257,30 +422,27 @@ export const ServiceDetail: React.FC = () => {
                 </div>
                 <div className="flex items-center gap-2">
                   <CheckCircle className="w-3.5 h-3.5 text-green-500" />
-                  {owner.completedTrades} intercambios completados
+                  <div className="text-slate-600" style={{ fontSize: '0.8rem' }}>
+                    {completedOnService + ' ' + (completedOnService === 1 ? 'intercambio' : 'intercambios')} · {owner.completedTrades} en total
+                  </div>
                 </div>
               </div>
             )}
 
             {/* Provider location from the profile (not viewer live location) */}
-            {hasExactLocation ? (
-              <div className="bg-white border border-slate-100 rounded-2xl p-3">
-                <h4 className="text-slate-700 mb-2" style={{ fontSize: '0.9rem', fontWeight: 600 }}>Ubicación del proveedor</h4>
-                <div style={{ height: 320 }}>
-                  <ProfileMap lat={Number(ownerLat)} lon={Number(ownerLon)} zoom={13} />
-                </div>
-                <div className="text-slate-500 text-sm mt-2">Se muestra la ubicación guardada en el perfil del proveedor.</div>
-              </div>
-            ) : (
-              <div className="bg-white border border-slate-100 rounded-2xl p-3">
-                <h4 className="text-slate-700 mb-2" style={{ fontSize: '0.9rem', fontWeight: 600 }}>Ubicación del proveedor</h4>
-                <div className="text-slate-500 text-sm mt-2">{owner?.city ? `${owner.city}${owner.country ? ', ' + owner.country : ''}` : 'Ubicación no disponible'}</div>
-              </div>
-            )}
+            <div className="bg-white border border-slate-100 rounded-2xl p-3">
+              <h4 className="text-slate-700 mb-2" style={{ fontSize: '0.9rem', fontWeight: 600 }}>Ubicación del proveedor</h4>
+              <div className="text-slate-500 text-sm mt-2">{ownerLocation}</div>
+            </div>
 
             {!isOwner && (
               <div className="space-y-2">
-                {!booked ? (
+                {booked ? (
+                  <div className="flex items-center gap-2 bg-green-50 text-green-700 px-4 py-3 rounded-xl">
+                    <CheckCircle className="w-4 h-4" />
+                    <span style={{ fontSize: '0.875rem' }}>¡Solicitud enviada!</span>
+                  </div>
+                ) : (
                   <>
                     {service.status === 'active' && (
                       <button onClick={() => setShowBooking(!showBooking)} className="w-full py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl transition-colors" style={{ fontWeight: 600, fontSize: '0.875rem' }}>
@@ -292,12 +454,22 @@ export const ServiceDetail: React.FC = () => {
                       {messaging ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageCircle className="w-4 h-4" />}
                       Enviar mensaje
                     </button>
+                    {myActiveTrade && (
+                      <div className="mt-3 bg-slate-50 border border-slate-100 rounded-xl p-3">
+                        <div className="text-slate-700 mb-2" style={{ fontSize: '0.85rem', fontWeight: 600 }}>Estado de tu reserva: {myActiveTrade.status}</div>
+                        <div className="flex gap-2">
+                          <ActiveTradeActions
+                            myActiveTrade={myActiveTrade}
+                            currentUser={currentUser}
+                            handleRequestStart={handleRequestStart}
+                            handleConfirmStart={handleConfirmStart}
+                            handleRequestEnd={handleRequestEnd}
+                            handleConfirmEnd={handleConfirmEnd}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </>
-                ) : (
-                  <div className="flex items-center gap-2 bg-green-50 text-green-700 px-4 py-3 rounded-xl">
-                    <CheckCircle className="w-4 h-4" />
-                    <span style={{ fontSize: '0.875rem' }}>¡Solicitud enviada!</span>
-                  </div>
                 )}
               </div>
             )}
@@ -305,68 +477,21 @@ export const ServiceDetail: React.FC = () => {
 
           {/* Booking form */}
           {showBooking && !booked && (
-            <div className="bg-white border border-teal-200 rounded-2xl p-5">
-              <h3 className="text-slate-700 mb-4" style={{ fontWeight: 600, fontSize: '0.9rem' }}>Propuesta de reserva</h3>
-              {bookError && (
-                <div className="flex items-center gap-2 bg-red-50 text-red-700 px-3 py-2 rounded-xl mb-3">
-                  <AlertCircle className="w-4 h-4" />
-                  <span style={{ fontSize: '0.8rem' }}>{bookError}</span>
-                </div>
-              )}
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-slate-600 mb-1" style={{ fontSize: '0.8rem', fontWeight: 500 }}>Fecha propuesta</label>
-                  <input
-                    type="date"
-                    value={scheduledDate}
-                    onChange={e => setScheduledDate(e.target.value)}
-                    min={minDateStr}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500"
-                    style={{ fontSize: '0.875rem' }}
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-600 mb-1" style={{ fontSize: '0.8rem', fontWeight: 500 }}>Hora propuesta</label>
-                  <input
-                    type="time"
-                    value={scheduledTime}
-                    onChange={e => setScheduledTime(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500"
-                    style={{ fontSize: '0.875rem' }}
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-600 mb-1" style={{ fontSize: '0.8rem', fontWeight: 500 }}>Créditos propuestos</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={20}
-                    value={creditsAmount === '' ? service.credits : creditsAmount}
-                    onChange={e => setCreditsAmount(Number(e.target.value))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500"
-                    style={{ fontSize: '0.875rem' }}
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-600 mb-1" style={{ fontSize: '0.8rem', fontWeight: 500 }}>Mensaje y notas (opcional)</label>
-                  <textarea
-                    value={notes}
-                    onChange={e => setNotes(e.target.value)}
-                    placeholder="Detalles adicionales..."
-                    rows={3}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 resize-none"
-                    style={{ fontSize: '0.875rem' }}
-                  />
-                </div>
-                <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2" style={{ fontSize: '0.8rem' }}>
-                  <span className="text-amber-700">La otra persona podrá aceptar, cancelar o negociar esta propuesta.</span>
-                </div>
-                <button onClick={handleBook} disabled={booking} className="w-full py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl transition-colors disabled:opacity-60 flex items-center justify-center gap-2" style={{ fontWeight: 600, fontSize: '0.875rem' }}>
-                  {booking && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {booking ? 'Enviando...' : 'Confirmar solicitud'}
-                </button>
-              </div>
-            </div>
+            <BookingForm
+              scheduledDate={scheduledDate}
+              scheduledTime={scheduledTime}
+              setScheduledDate={setScheduledDate}
+              setScheduledTime={setScheduledTime}
+              creditsAmount={creditsAmount}
+              setCreditsAmount={setCreditsAmount}
+              notes={notes}
+              setNotes={setNotes}
+              minDateStr={minDateStr}
+              bookError={bookError}
+              booking={booking}
+              onConfirm={handleBook}
+              service={service}
+            />
           )}
         </div>
       </div>

@@ -60,16 +60,20 @@ function Calendar({
         ...classNames,
       }}
       components={{
-        IconLeft: ({ className, ...props }) => (
-          <ChevronLeft className={cn("size-4", className)} {...props} />
-        ),
-        IconRight: ({ className, ...props }) => (
-          <ChevronRight className={cn("size-4", className)} {...props} />
-        ),
+        IconLeft: CalendarIconLeft,
+        IconRight: CalendarIconRight,
       }}
       {...props}
     />
   );
 }
+
+const CalendarIconLeft: React.FC<React.SVGProps<SVGSVGElement>> = ({ className, ...props }) => (
+  <ChevronLeft className={cn("size-4", className)} {...props} />
+);
+
+const CalendarIconRight: React.FC<React.SVGProps<SVGSVGElement>> = ({ className, ...props }) => (
+  <ChevronRight className={cn("size-4", className)} {...props} />
+);
 
 export { Calendar };

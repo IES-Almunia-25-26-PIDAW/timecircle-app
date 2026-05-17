@@ -1,15 +1,3 @@
-/**
- * Messages.tsx — Mensajería con presencia y typing 100% real via polling REST.
- *
- * Flujo de presencia:
- *  - Heartbeat cada 30 s  →  POST /api/presence/heartbeat/  {status: 'online'|'away'}
- *  - Idle 10 min sin actividad  →  heartbeat con {status: 'away'}
- *  - Al escribir  →  POST /api/presence/typing/  {conversation_id, is_typing: true}
- *  - 3 s sin escribir  →  POST /api/presence/typing/  {is_typing: false}
- *  - Polling cada 3 s  →  GET /api/presence/?user_id=X&conversation_id=Y
- *    → devuelve {status: 'online'|'away'|'offline', is_typing: bool}
- */
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router';
 import {
@@ -86,12 +74,9 @@ const PresenceDot: React.FC<{ status: PresenceStatus; size?: 'sm' | 'md' }> = ({
   size = 'sm',
 }) => {
   const dim = size === 'md' ? 'w-3 h-3' : 'w-2.5 h-2.5';
-  const color =
-    status === 'online'
-      ? 'bg-green-500'
-      : status === 'away'
-        ? 'bg-amber-400'
-        : 'bg-slate-300 dark:bg-slate-600';
+  let color = 'bg-slate-300 dark:bg-slate-600';
+  if (status === 'online') color = 'bg-green-500';
+  else if (status === 'away') color = 'bg-amber-400';
   return (
     <span
       className={`${dim} rounded-full border-2 border-white dark:border-slate-900 transition-colors duration-500 ${color}`}
@@ -262,13 +247,16 @@ const ReservationMessageCard: React.FC<{
           </div>
           <div className="mt-1 font-semibold" style={{ fontSize: '0.92rem' }}>{serviceTitle}</div>
         </div>
-        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-          status === 'accepted' ? 'bg-green-100 text-green-700'
-            : status === 'cancelled' ? 'bg-red-100 text-red-700'
-              : 'bg-amber-100 text-amber-700'
-        }`}>
-          {statusLabel[status] || status}
-        </span>
+        {(() => {
+          let statusClass = 'bg-amber-100 text-amber-700';
+          if (status === 'accepted') statusClass = 'bg-green-100 text-green-700';
+          else if (status === 'cancelled') statusClass = 'bg-red-100 text-red-700';
+          return (
+            <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusClass}`}>
+              {statusLabel[status] || status}
+            </span>
+          );
+        })()}
       </div>
 
       <div className="mt-3 grid gap-2 text-sm">
@@ -342,6 +330,82 @@ const ReservationMessageCard: React.FC<{
   );
 };
 
+const renderMessageContent = (msg: Message, isMe: boolean) => {
+    if (msg.messageType === 'trade_proposal') {
+      return <ReservationMessageCard msg={msg} isMe={isMe} />;
+    }
+
+    if (msg.messageType === 'trade_status') {
+      const isAccepted = msg.payload?.action === 'accepted';
+      return (
+        <div className={`rounded-2xl border px-4 py-2.5 text-sm ${
+          isAccepted
+            ? 'border-green-200 bg-green-50 text-green-700'
+            : 'border-red-200 bg-red-50 text-red-700'
+        }`}>
+          {msg.content}
+        </div>
+      );
+    }
+  return (
+    <div className={`px-4 py-2.5 rounded-2xl ${
+      isMe
+        ? 'bg-teal-600 text-white rounded-br-sm'
+        : 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-slate-100 rounded-bl-sm'
+    }`}>
+      <p style={{ fontSize: '0.875rem', lineHeight: 1.5, wordBreak: 'break-word' }}>
+        {msg.content}
+      </p>
+    </div>
+  );
+};
+
+// Small presentational component to render the messages list
+const MessagesList: React.FC<{
+  messages: Message[];
+  firstNewIdx: number;
+  currentUser: any;
+  otherUser: any;
+  otherPresence: OtherPresence;
+  messagesEndRef: React.RefObject<HTMLDivElement | null> | null;
+}> = ({ messages, firstNewIdx, currentUser, otherUser, otherPresence, messagesEndRef }) => (
+  <>
+    {messages.map((msg, idx) => {
+      const isMe = msg.senderId === currentUser.id;
+      const showSep = idx === firstNewIdx && firstNewIdx > 0;
+      return (
+        <React.Fragment key={msg.id}>
+          {showSep && <NewMessagesSeparator />}
+          <div className={`flex ${isMe ? 'justify-end' : 'justify-start'} items-end gap-2`}>
+            {!isMe && (
+              <img
+                src={otherUser?.avatar}
+                alt=""
+                className="w-7 h-7 rounded-full border border-slate-200 dark:border-slate-700 flex-shrink-0"
+              />
+            )}
+            <div
+              className={isMe ? 'tc-msg-mine' : 'tc-msg-theirs'}
+              style={{ maxWidth: msg.messageType === 'trade_proposal' || msg.messageType === 'trade_status' ? '88%' : '72%' }}
+            >
+                {renderMessageContent(msg, isMe)}
+              <p className={`mt-1 ${isMe ? 'text-right text-slate-400' : 'text-slate-400'}`} style={{ fontSize: '0.65rem' }}>
+                {new Date(msg.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+              </p>
+            </div>
+          </div>
+        </React.Fragment>
+      );
+    })}
+
+    {otherPresence.is_typing && (
+      <TypingBubble avatar={otherUser.avatar} name={otherUser.name.split(' ')[0]} />
+    )}
+
+    <div ref={messagesEndRef} />
+  </>
+);
+
 // ── Conversation list item ────────────────────────────────
 const ConvItem: React.FC<{
   conv: Conversation;
@@ -350,8 +414,8 @@ const ConvItem: React.FC<{
   onClick: () => void;
 }> = ({ conv, selected, otherTyping, onClick }) => {
   const { currentUser, getUserById } = useApp();
-  const otherId = conv.participants.find((p) => p !== currentUser?.id)!;
-  const other = getUserById(otherId);
+  const otherId = conv.participants.find((p) => p !== currentUser?.id);
+  const other = getUserById(otherId!);
 
   return (
     <button
@@ -449,10 +513,29 @@ export const Messages: React.FC = () => {
   // Send button pulse
   const [sendPulse, setSendPulse] = useState(false);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const conversations = getUserConversations(currentUser?.id ?? '');
+
+  // Handle incoming websocket messages for the selected conversation
+  const handleWsMessage = useCallback((msg: any) => {
+    if (!msg || msg?.type !== 'message') return;
+    if (!selectedConvId) return;
+    if (String(msg.conversation_id) !== String(selectedConvId)) return;
+
+    const newMsg: Message = {
+      id: String(msg.id),
+      conversationId: String(msg.conversation_id),
+      senderId: String(msg.sender_id),
+      content: msg.content,
+      timestamp: msg.timestamp,
+      read: msg.read ?? false,
+    };
+
+    setMessages((prev) => (prev.some(m => m.id === newMsg.id) ? prev : [...prev, newMsg]));
+    setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+  }, [selectedConvId]);
 
   // ── 2. TYPING SEND ────────────────────────────────────
   // Called whenever messageText changes (from the input handler).
@@ -514,7 +597,7 @@ export const Messages: React.FC = () => {
     // If websocket client exists, subscribe to conversation presence updates.
     const ws = getWsClient?.();
     if (ws) {
-      try { ws.subscribe(selectedConvId); } catch (e) {}
+      try { ws.subscribe(selectedConvId); } catch (e) { console.warn('Failed to subscribe to WS presence updates', e); }
     }
 
     // Polling para obtener presencia (se ejecuta siempre, como fallback para WS)
@@ -537,7 +620,7 @@ export const Messages: React.FC = () => {
     return () => {
       clearInterval(interval);
       if (ws) {
-        try { ws.unsubscribe(selectedConvId); } catch (e) {}
+        try { ws.unsubscribe(selectedConvId); } catch (e) { console.warn('Failed to unsubscribe from WS presence updates', e); }
       }
     };
   }, [selectedConvId, otherUserId]);
@@ -586,32 +669,12 @@ export const Messages: React.FC = () => {
     if (ws) {
       try {
         ws.subscribe(selectedConvId);
-        // Listen for new messages from WebSocket
-        const handleWSMessage = (msg: any) => {
-          if (msg?.type === 'message' && msg?.conversation_id === Number(selectedConvId)) {
-            // Add new message from WebSocket
-            const newMsg: Message = {
-              id: String(msg.id),
-              conversationId: String(msg.conversation_id),
-              senderId: String(msg.sender_id),
-              content: msg.content,
-              timestamp: msg.timestamp,
-              read: msg.read ?? false,
-            };
-            setMessages((prev) => {
-              const exists = prev.some(m => m.id === newMsg.id);
-              return exists ? prev : [...prev, newMsg];
-            });
-            // Auto-scroll to new message
-            setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
-          }
-        };
-        ws.onMessage(handleWSMessage);
+        ws.onMessage(handleWsMessage);
         return () => {
-          try { ws.unsubscribe(selectedConvId); } catch (e) {}
+          try { ws.unsubscribe(selectedConvId); } catch (e) { console.warn('Failed to unsubscribe from WS messages', e); }
         };
       } catch (e) {
-        // WS not available, polling will still work via fetchMessages
+        console.warn('WebSocket not available - falling back to polling for messages', e);
       }
     }
 
@@ -644,7 +707,7 @@ export const Messages: React.FC = () => {
 
     // Send message via WebSocket (primary path, no REST fallback)
     const ws = getWsClient?.();
-    if (ws && ws.isConnected?.()) {
+    if (ws?.isConnected?.()) {
       ws.sendMessage(selectedConvId, text);
     } else {
       // If WebSocket not connected, show error to user instead of silently failing
@@ -685,12 +748,50 @@ export const Messages: React.FC = () => {
 
   const filteredConvs = conversations.filter((c) => {
     if (!search) return true;
-    const othId = c.participants.find((p) => p !== currentUser.id)!;
-    const other = getUserById(othId);
+    const othId = c.participants.find((p) => p !== currentUser.id);
+    const other = getUserById(othId!);
     return other?.name.toLowerCase().includes(search.toLowerCase());
   });
 
   const presenceLbl = presenceLabel(otherPresence.status);
+
+  const sidebarVisibility = showSidebar ? 'flex' : 'hidden sm:flex';
+  const mainVisibility = showSidebar ? 'hidden sm:flex' : 'flex';
+
+  const renderMessagesArea = () => {
+  if (loadingMsgs) {
+    return (
+      <div className="flex justify-center py-8">
+        <Loader2 className="w-6 h-6 animate-spin text-teal-500" />
+      </div>
+    );
+  }
+
+  if (messages.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-slate-400">
+        <div className="w-14 h-14 rounded-2xl bg-teal-50 dark:bg-teal-950/30 flex items-center justify-center mb-3">
+          <MessageCircle className="w-7 h-7 text-teal-400" />
+        </div>
+        <p style={{ fontSize: '0.95rem', fontWeight: 500 }}>Inicia la conversación</p>
+        <p className="text-slate-300 dark:text-slate-600 mt-1" style={{ fontSize: '0.8rem' }}>
+          Di hola a {otherUser?.name.split(' ')[0]} 👋
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <MessagesList
+      messages={messages}
+      firstNewIdx={firstNewIdx}
+      currentUser={currentUser}
+      otherUser={otherUser}
+      otherPresence={otherPresence}
+      messagesEndRef={messagesEndRef}
+    />
+  );
+};
 
   return (
     <>
@@ -724,11 +825,7 @@ export const Messages: React.FC = () => {
       <div className="max-w-5xl mx-auto h-[calc(100vh-8rem)] flex bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 overflow-hidden shadow-sm">
 
         {/* ── Sidebar ── */}
-        <div
-          className={`w-full sm:w-72 flex-shrink-0 border-r border-slate-100 dark:border-slate-800 flex flex-col ${
-            !showSidebar ? 'hidden sm:flex' : 'flex'
-          }`}
-        >
+        <div className={`w-full sm:w-72 flex-shrink-0 border-r border-slate-100 dark:border-slate-800 flex flex-col ${sidebarVisibility}`}>
           <div className="p-4 border-b border-slate-100 dark:border-slate-800">
             <h2
               className="text-slate-900 dark:text-slate-100 mb-3"
@@ -770,7 +867,7 @@ export const Messages: React.FC = () => {
         </div>
 
         {/* ── Chat ── */}
-        <div className={`flex-1 flex flex-col min-w-0 ${showSidebar ? 'hidden sm:flex' : 'flex'}`}>
+        <div className={`flex-1 flex flex-col min-w-0 ${mainVisibility}`}>
           {selectedConv && otherUser ? (
             <>
               {/* Header */}
@@ -808,15 +905,12 @@ export const Messages: React.FC = () => {
                       />
                     ) : (
                       <div className="flex items-center gap-1.5">
-                        <Circle
-                          className={`w-2 h-2 ${
-                            otherPresence.status === 'online'
-                              ? 'fill-green-500 text-green-500'
-                              : otherPresence.status === 'away'
-                                ? 'fill-amber-400 text-amber-400'
-                                : 'fill-slate-300 text-slate-300 dark:fill-slate-600 dark:text-slate-600'
-                          }`}
-                        />
+                        {(() => {
+                          let otherDotClass = 'fill-slate-300 text-slate-300 dark:fill-slate-600 dark:text-slate-600';
+                          if (otherPresence.status === 'online') otherDotClass = 'fill-green-500 text-green-500';
+                          else if (otherPresence.status === 'away') otherDotClass = 'fill-amber-400 text-amber-400';
+                          return <Circle className={`w-2 h-2 ${otherDotClass}`} />;
+                        })()}
                         <span className={presenceLbl.cls}>{presenceLbl.text}</span>
                         <span className="text-slate-300 dark:text-slate-700">·</span>
                         <span className="text-slate-400">
@@ -830,99 +924,7 @@ export const Messages: React.FC = () => {
 
               {/* Messages area */}
               <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2">
-                {loadingMsgs ? (
-                  <div className="flex justify-center py-8">
-                    <Loader2 className="w-6 h-6 animate-spin text-teal-500" />
-                  </div>
-                ) : messages.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-full text-slate-400">
-                    <div className="w-14 h-14 rounded-2xl bg-teal-50 dark:bg-teal-950/30 flex items-center justify-center mb-3">
-                      <MessageCircle className="w-7 h-7 text-teal-400" />
-                    </div>
-                    <p style={{ fontSize: '0.95rem', fontWeight: 500 }}>Inicia la conversación</p>
-                    <p
-                      className="text-slate-300 dark:text-slate-600 mt-1"
-                      style={{ fontSize: '0.8rem' }}
-                    >
-                      Di hola a {otherUser.name.split(' ')[0]} 👋
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    {messages.map((msg, idx) => {
-                      const isMe = msg.senderId === currentUser.id;
-                      const showSep = idx === firstNewIdx && firstNewIdx > 0;
-                      return (
-                        <React.Fragment key={msg.id}>
-                          {showSep && <NewMessagesSeparator />}
-                          <div
-                            className={`flex ${isMe ? 'justify-end' : 'justify-start'} items-end gap-2`}
-                          >
-                            {!isMe && (
-                              <img
-                                src={otherUser.avatar}
-                                alt=""
-                                className="w-7 h-7 rounded-full border border-slate-200 dark:border-slate-700 flex-shrink-0"
-                              />
-                            )}
-                            <div
-                              className={isMe ? 'tc-msg-mine' : 'tc-msg-theirs'}
-                              style={{ maxWidth: msg.messageType === 'trade_proposal' || msg.messageType === 'trade_status' ? '88%' : '72%' }}
-                            >
-                              {msg.messageType === 'trade_proposal' ? (
-                                <ReservationMessageCard msg={msg} isMe={isMe} />
-                              ) : msg.messageType === 'trade_status' ? (
-                                <div className={`rounded-2xl border px-4 py-2.5 text-sm ${
-                                  msg.payload?.action === 'accepted'
-                                    ? 'border-green-200 bg-green-50 text-green-700'
-                                    : 'border-red-200 bg-red-50 text-red-700'
-                                }`}>
-                                  {msg.content}
-                                </div>
-                              ) : (
-                                <div
-                                  className={`px-4 py-2.5 rounded-2xl ${
-                                    isMe
-                                      ? 'bg-teal-600 text-white rounded-br-sm'
-                                      : 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-slate-100 rounded-bl-sm'
-                                  }`}
-                                >
-                                  <p
-                                    style={{
-                                      fontSize: '0.875rem',
-                                      lineHeight: 1.5,
-                                      wordBreak: 'break-word',
-                                    }}
-                                  >
-                                    {msg.content}
-                                  </p>
-                                </div>
-                              )}
-                              <p
-                                className={`mt-1 ${isMe ? 'text-right text-slate-400' : 'text-slate-400'}`}
-                                style={{ fontSize: '0.65rem' }}
-                              >
-                                {new Date(msg.timestamp).toLocaleTimeString('es-ES', {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
-                              </p>
-                            </div>
-                          </div>
-                        </React.Fragment>
-                      );
-                    })}
-
-                    {/* Typing bubble — visible when the OTHER user is typing */}
-                    {otherPresence.is_typing && (
-                      <TypingBubble
-                        avatar={otherUser.avatar}
-                        name={otherUser.name.split(' ')[0]}
-                      />
-                    )}
-                  </>
-                )}
-                <div ref={messagesEndRef} />
+                {renderMessagesArea()}
               </div>
 
               {/* Input */}

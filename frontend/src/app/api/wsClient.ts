@@ -33,16 +33,20 @@ export function createWS(wsUrl: string): WSClient {
   function connect() {
     ws = new WebSocket(wsUrl);
     ws.onopen = () => {
-      // console.log('WS open');
+      console.log('WS open');
     };
+    const determineType = (data: Partial<WSMessage>): WSMessage['type'] => {
+      if (data.id && data.conversation_id) return 'message';
+      if (data.user_id) return 'presence';
+      return 'unknown';
+    };
+
     ws.onmessage = (ev) => {
       try {
         const data = JSON.parse(ev.data) as WSMessage;
         // Determine message type
-        if (!data.type) {
-          data.type = data.id && data.conversation_id ? 'message' : 
-                     data.user_id ? 'presence' : 'unknown';
-        }
+        if (!data.type) data.type = determineType(data);
+
         // Call all listeners with the parsed message
         listeners.forEach(listener => {
           try {
@@ -65,7 +69,7 @@ export function createWS(wsUrl: string): WSClient {
   }
 
   function send(obj: any) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
+    if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(obj));
     }
   }

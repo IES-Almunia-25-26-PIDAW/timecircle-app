@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import {
   Users, Search, Trash2, Shield, CheckCircle,
-  XCircle, TrendingUp, Star, Clock, ArrowLeftRight,
-  AlertTriangle, Eye, Settings
+  TrendingUp, Star, Clock, ArrowLeftRight
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { apiAdminGetStats } from '../api/endpoints';
@@ -13,10 +12,25 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recha
 type AdminTab = 'overview' | 'users' | 'services' | 'trades';
 
 export const Admin: React.FC = () => {
-  const { users, services, trades, reviews, adminDeleteUser, adminDeleteService, adminUpdateUser, currentUser, getUserById, getServiceById } = useApp();
+  const { users, services, trades, adminDeleteUser, adminDeleteService, adminUpdateUser, currentUser, getUserById, getServiceById } = useApp();
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
   const [searchUsers, setSearchUsers] = useState('');
   const [searchServices, setSearchServices] = useState('');
+  const [geoStats, setGeoStats] = useState<{ user_cells: any[]; service_cells: any[] } | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const data = await apiAdminGetStats();
+        if (!cancelled) setGeoStats(data);
+      } catch (e) {
+        console.warn('Error loading admin stats:', e);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, []);
 
   if (!currentUser?.isAdmin) {
     return (
@@ -63,25 +77,11 @@ export const Admin: React.FC = () => {
     { key: 'trades', label: `Intercambios (${trades.length})`, icon: <ArrowLeftRight className="w-4 h-4" /> },
   ];
 
-  const assignBadge = (userId: string, badge: 'gold' | 'silver' | 'bronze' | undefined) => {
+  type BadgeType = 'gold' | 'silver' | 'bronze' | undefined;
+  const assignBadge = (userId: string, badge: BadgeType) => {
     adminUpdateUser(userId, { badge });
   };
 
-  const [geoStats, setGeoStats] = useState<{ user_cells: any[]; service_cells: any[] } | null>(null);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const data = await apiAdminGetStats();
-        if (!cancelled) setGeoStats(data);
-      } catch (e) {
-        // ignore
-      }
-    };
-    load();
-    return () => { cancelled = true; };
-  }, []);
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -235,7 +235,7 @@ export const Admin: React.FC = () => {
                   <div className="col-span-2 text-center">
                     <select
                       value={user.badge || ''}
-                      onChange={e => assignBadge(user.id, e.target.value as any || undefined)}
+                      onChange={e => assignBadge(user.id, e.target.value as BadgeType)}
                       className="text-xs border border-slate-200 rounded-lg px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-teal-500"
                       style={{ fontSize: '0.7rem' }}
                     >
@@ -248,7 +248,7 @@ export const Admin: React.FC = () => {
                   <div className="col-span-2 flex justify-center gap-1">
                     <button
                       onClick={() => {
-                        if (window.confirm(`¿Eliminar a ${user.name}?`)) {
+                        if (globalThis.confirm(`¿Eliminar a ${user.name}?`)) {
                           adminDeleteUser(user.id);
                         }
                       }}
@@ -308,7 +308,7 @@ export const Admin: React.FC = () => {
                       </span>
                       <button
                         onClick={() => {
-                          if (window.confirm(`¿Eliminar "${service.title}"?`)) {
+                          if (globalThis.confirm(`¿Eliminar "${service.title}"?`)) {
                             adminDeleteService(service.id);
                           }
                         }}

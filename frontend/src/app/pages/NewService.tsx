@@ -80,10 +80,11 @@ export const NewService: React.FC = () => {
         <form onSubmit={handleSubmit} className="space-y-5">
           {/* Type */}
           <div>
-            <label className="block text-slate-700 mb-2" style={{ fontWeight: 600, fontSize: '0.875rem' }}>
-              Tipo de publicación
-            </label>
-            <div className="grid grid-cols-2 gap-3">
+            <fieldset className="p-0 m-0">
+              <legend className="block text-slate-700 mb-2" style={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                Tipo de publicación
+              </legend>
+              <div className="grid grid-cols-2 gap-3">
               {([
                 { val: 'offer', label: '✋ Ofrezco ayuda', desc: 'Quiero dar algo a la comunidad' },
                 { val: 'request', label: '🙋 Solicito ayuda', desc: 'Necesito que alguien me ayude' },
@@ -102,15 +103,17 @@ export const NewService: React.FC = () => {
                   <div className="text-slate-500 mt-0.5" style={{ fontSize: '0.75rem' }}>{desc}</div>
                 </button>
               ))}
-            </div>
+              </div>
+            </fieldset>
           </div>
 
           {/* Category */}
           <div>
-            <label className="block text-slate-700 mb-2" style={{ fontWeight: 600, fontSize: '0.875rem' }}>
-              Categoría *
-            </label>
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+            <fieldset className="p-0 m-0">
+              <legend className="block text-slate-700 mb-2" style={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                Categoría *
+              </legend>
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
               {CATEGORIES.map(cat => (
                 <button
                   key={cat.id}
@@ -126,16 +129,18 @@ export const NewService: React.FC = () => {
                   <span className="text-slate-700" style={{ fontSize: '0.7rem' }}>{cat.label}</span>
                 </button>
               ))}
-            </div>
+              </div>
+            </fieldset>
             {errors.category && <p className="text-red-500 mt-1" style={{ fontSize: '0.8rem' }}>{errors.category}</p>}
           </div>
 
           {/* Title */}
           <div>
-            <label className="block text-slate-700 mb-1.5" style={{ fontWeight: 600, fontSize: '0.875rem' }}>
+            <label htmlFor="service-title" className="block text-slate-700 mb-1.5" style={{ fontWeight: 600, fontSize: '0.875rem' }}>
               Título *
             </label>
             <input
+              id="service-title"
               type="text"
               value={title}
               onChange={e => { setTitle(e.target.value); setErrors(v => ({ ...v, title: '' })); }}
@@ -152,10 +157,11 @@ export const NewService: React.FC = () => {
 
           {/* Description */}
           <div>
-            <label className="block text-slate-700 mb-1.5" style={{ fontWeight: 600, fontSize: '0.875rem' }}>
+            <label htmlFor="service-description" className="block text-slate-700 mb-1.5" style={{ fontWeight: 600, fontSize: '0.875rem' }}>
               Descripción *
             </label>
             <textarea
+              id="service-description"
               value={description}
               onChange={e => { setDescription(e.target.value); setErrors(v => ({ ...v, description: '' })); }}
               placeholder="Describe con detalle lo que ofreces o necesitas. Cuanto más específico, mejor."
@@ -169,15 +175,16 @@ export const NewService: React.FC = () => {
           {/* Credits & Duration */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-slate-700 mb-1.5" style={{ fontWeight: 600, fontSize: '0.875rem' }}>
-                Créditos horarios *
-              </label>
+              <label htmlFor="service-credits" className="block text-slate-700 mb-1.5" style={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                  Créditos horarios *
+                </label>
               <div className="relative">
                 <Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-amber-500" />
                 <input
-                  type="number"
-                  value={credits}
-                  onChange={e => { setCredits(Number(e.target.value)); setErrors(v => ({ ...v, credits: '' })); }}
+                    id="service-credits"
+                    type="number"
+                    value={credits}
+                    onChange={e => { setCredits(Number(e.target.value)); setErrors(v => ({ ...v, credits: '' })); }}
                   min={0.5}
                   max={10}
                   step={0.5}
@@ -189,10 +196,11 @@ export const NewService: React.FC = () => {
               <p className="text-slate-400 mt-1" style={{ fontSize: '0.75rem' }}>1 crédito = 1 hora</p>
             </div>
             <div>
-              <label className="block text-slate-700 mb-1.5" style={{ fontWeight: 600, fontSize: '0.875rem' }}>
+              <label htmlFor="service-duration" className="block text-slate-700 mb-1.5" style={{ fontWeight: 600, fontSize: '0.875rem' }}>
                 Duración estimada
               </label>
               <select
+                id="service-duration"
                 value={duration}
                 onChange={e => setDuration(Number(e.target.value))}
                 className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50"
@@ -210,11 +218,12 @@ export const NewService: React.FC = () => {
 
           {/* Tags */}
           <div>
-            <label className="block text-slate-700 mb-1.5" style={{ fontWeight: 600, fontSize: '0.875rem' }}>
+            <label htmlFor="service-tags-input" className="block text-slate-700 mb-1.5" style={{ fontWeight: 600, fontSize: '0.875rem' }}>
               Etiquetas (máx. 5)
             </label>
             <div className="flex gap-2 mb-2">
               <input
+                id="service-tags-input"
                 type="text"
                 value={tagInput}
                 onChange={e => setTagInput(e.target.value)}
