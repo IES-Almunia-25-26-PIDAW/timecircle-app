@@ -1,5 +1,5 @@
 import React from 'react'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, fireEvent } from '@testing-library/react'
 import { describe, it, vi, expect } from 'vitest'
 
 // We'll mock next-themes locally to control setTheme behavior for this test
