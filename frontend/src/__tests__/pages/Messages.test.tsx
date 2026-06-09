@@ -151,7 +151,7 @@ describe('Messages', () => {
     fireEvent.click(negoBtn)
 
     const dateInput = await screen.findByTestId('reservation-date')
-    const timeInput = await screen.findByTestId('reservation-time')
+    await screen.findByTestId('reservation-time')
     const creditsInput = screen.getByTestId('reservation-credits')
     const notesInput = screen.getByTestId('reservation-notes')
     const messageInput = screen.getByTestId('reservation-message')
