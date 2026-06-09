@@ -27,7 +27,7 @@ describe('ServiceDetail helpers and subcomponents', () => {
     const noTime = validateBookingParams('2026-06-10', '', '', service, null, [], () => null);
     expect((noTime as any).error).toBeTruthy();
 
-    const serviceZero: any = { credits: 0, duration: 60, type: 'offer', id: 's1' };
+    const serviceZero: any = { credits: 1, duration: 60, type: 'offer', id: 's1' };
     const badCredits = validateBookingParams('2026-06-10', '10:00', 0, serviceZero, { id: 'u1', credits: 5 }, [], () => null);
     expect((badCredits as any).error).toMatch(/al menos 1/i);
   });
