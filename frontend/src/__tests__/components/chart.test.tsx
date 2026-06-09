@@ -14,7 +14,6 @@ vi.mock('recharts', () => {
 
 import {
   ChartContainer,
-  ChartStyle,
   ChartTooltipContent,
   ChartLegendContent,
 } from '../../app/components/ui/chart';
