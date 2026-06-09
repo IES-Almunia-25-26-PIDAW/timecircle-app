@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render } from '@testing-library/react'
 import { vi } from 'vitest'
 
 // Force desktop branch by default
