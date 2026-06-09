@@ -17,7 +17,6 @@ describe("Avatar component", () => {
     expect(root?.className).toMatch(/rounded-full/);
 
     // Radix Avatar will render the fallback if the image does not load in JSDOM.
-    const imgQuery = document.querySelector('[data-slot="avatar-image"]');
     const fallback = document.querySelector('[data-slot="avatar-fallback"]');
     expect(fallback).toBeInTheDocument();
     expect(screen.getByText("AB")).toBeInTheDocument();
