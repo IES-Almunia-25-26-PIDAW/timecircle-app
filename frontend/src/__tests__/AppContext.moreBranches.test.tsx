@@ -412,7 +412,7 @@ describe('AppContext more branches', () => {
     await waitFor(() => expect(actions).toBeTruthy());
 
     const registerSpy = vi.spyOn(endpoints, 'apiRegister');
-    const result = await actions.register('New User', 'new@test.com', 'password123');
+    await actions.register('New User', 'new@test.com', 'password123');
     expect(registerSpy).toHaveBeenCalled();
   });
 
