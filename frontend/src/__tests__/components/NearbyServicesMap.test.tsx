@@ -434,7 +434,7 @@ describe('NearbyServicesMap', () => {
 
     map.featuresAtPixel = [mocks.featureInstances[0]]
     emitMapEvent(map, 'pointermove')
-    card = await screen.findByRole('dialog', { name: /servicios cercanos/i })
+    await screen.findByRole('dialog', { name: /servicios cercanos/i })
 
     rerender(
       <MemoryRouter>
