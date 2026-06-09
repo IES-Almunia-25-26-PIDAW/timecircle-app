@@ -287,7 +287,7 @@ describe('Messages', () => {
     const negoBtn = screen.getByRole('button', { name: /Negociar/i })
     fireEvent.click(negoBtn)
 
-    const dateInput = await screen.findByTestId('reservation-date')
+    await screen.findByTestId('reservation-date')
     const messageInput = screen.getByTestId('reservation-message')
     fireEvent.change(messageInput, { target: { value: 'counter' } })
 
