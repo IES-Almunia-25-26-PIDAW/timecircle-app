@@ -43,6 +43,13 @@ describe('ServiceDetail helpers and subcomponents', () => {
     expect((same as any).error).toMatch(/Ya tienes una reserva activa/i);
   });
 
+  it('validateBookingParams allows booking when user has exactly required credits', () => {
+    const service: any = { credits: 2, duration: 60, type: 'offer', id: 's1' };
+    const user: any = { id: 'u1', credits: 2, isAdmin: false };
+    const result = validateBookingParams('2026-06-10', '10:00', 2, service, user, [], () => null);
+    expect((result as any).error).toBeFalsy();
+  });
+
   it('isOverlap detects overlapping trades', () => {
     const selected = new Date('2026-06-10T10:00:00');
     const selectedEnd = new Date(selected.getTime() + 60 * 60000);
