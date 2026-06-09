@@ -144,9 +144,7 @@ describe('AppContext Remaining Branches', () => {
       if (closeBtn) {
         fireEvent.click(closeBtn);
         // Banner should be hidden now
-        setTimeout(() => {
-          expect(screen.queryByText(/Compartir tu ubicación ayuda/i)).not.toBeInTheDocument();
-        }, 100);
+        expect(screen.queryByText(/Compartir tu ubicación ayuda/i)).not.toBeInTheDocument();
       }
     }, { timeout: 2000 });
   });
