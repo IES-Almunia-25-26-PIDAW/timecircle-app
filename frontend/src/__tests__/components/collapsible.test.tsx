@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, fireEvent } from '@testing-library/react'
 
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '../../app/components/ui/collapsible'
 
