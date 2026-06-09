@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { apiFetch, getTokens, setTokens, clearTokens } from '../../app/api/client'
+import { apiFetch } from '../../app/api/client'
 
 describe('apiFetch client', () => {
   const origLocal = globalThis.localStorage
