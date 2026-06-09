@@ -85,8 +85,8 @@ export const Calendar: React.FC = () => {
     const end = event.end ? new Date(event.end) : null;
     let time = '';
     if (start) {
-      const startStr = start.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
-      const endStr = end ? ` — ${end.toLocaleTimeString([], { timeStyle: 'short' })}` : '';
+      const startStr = start.toLocaleString([], { month: 'numeric', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+      const endStr = end ? ` — ${end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : '';
       time = `${startStr}${endStr}`;
     }
 

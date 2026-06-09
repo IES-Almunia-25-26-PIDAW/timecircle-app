@@ -98,7 +98,9 @@ export const Leaderboard: React.FC = () => {
   const EXCLUDED_COUNTRIES = ['spain'];
   const EXCLUDED_CITIES = ['jerez'];
 
-  useEffect(() => setPage(1), [sortBy, city, country]);
+  // Resetting page is handled in the user interaction handlers
+  // (e.g. when clicking sort or changing filters) so we avoid
+  // interfering with initialization from URL search params.
 
   // initialize from URL
   useEffect(() => {
