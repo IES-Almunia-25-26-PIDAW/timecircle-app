@@ -13,6 +13,7 @@ Cubre:
 from django.test import TestCase, RequestFactory
 from django.utils import timezone
 from datetime import timedelta
+from unittest.mock import patch
 import decimal
 
 from api.models import Conversation, Message, Trade, Transaction, Service, User
@@ -21,6 +22,10 @@ from api.serializers import (
     TradeNegotiationSerializer,
     TradeStatusUpdateSerializer,
     TradeSerializer,
+    TradeStartRequestSerializer,
+    TradeConfirmStartSerializer,
+    TradeEndRequestSerializer,
+    TradeConfirmEndSerializer,
     get_or_create_trade_conversation,
 )
 from .factories import (
@@ -479,3 +484,342 @@ class TradeReadSerializerTests(TestCase):
         trade     = make_trade(offerer, requester)
         data      = TradeSerializer(trade).data
         self.assertIsNone(data["completed_at"])
+
+    def test_get_conversation_id_returns_correct_conversation(self):
+        """Test that get_conversation_id returns the ID of the conversation between participants."""
+        offerer   = make_user(username="off_conv_id", email="off_conv_id@x.com")
+        requester = make_user(username="req_conv_id", email="req_conv_id@x.com")
+        trade     = make_trade(offerer, requester)
+        # Create conversation between the two participants
+        conversation = make_conversation(offerer, requester)
+        data      = TradeSerializer(trade).data
+        self.assertEqual(data["conversation_id"], conversation.id)
+
+    def test_get_conversation_id_none_when_no_conversation_exists(self):
+        """Test that get_conversation_id returns None if no conversation exists."""
+        offerer   = make_user(username="off_no_conv", email="off_no_conv@x.com")
+        requester = make_user(username="req_no_conv", email="req_no_conv@x.com")
+        trade     = make_trade(offerer, requester)
+        data      = TradeSerializer(trade).data
+        self.assertIsNone(data["conversation_id"])
+
+
+# ══════════════════════════════════════════════
+#  TRADE START REQUEST
+# ══════════════════════════════════════════════
+
+class TradeStartRequestSerializerTests(TestCase):
+
+    def setUp(self):
+        self.offerer = make_user(username="off_start", email="off_start@x.com")
+        self.requester = make_user(username="req_start", email="req_start@x.com")
+        self.future = timezone.now() + timedelta(days=2)
+
+    def _serializer(self, trade, user):
+        return TradeStartRequestSerializer(
+            data={},
+            context={
+                "trade": trade,
+                "request": _request(user),
+            },
+        )
+
+    def test_valid_start_request_within_window(self):
+        """Request to start can be made up to 1 day early or 5 hours late."""
+        trade = make_trade(
+            self.offerer,
+            self.requester,
+            status=Trade.Status.ACCEPTED,
+            scheduled_date=self.future,
+        )
+        # Mock timezone.now to be just before scheduled date
+        mocked_time = self.future - timedelta(hours=12)
+        with patch('django.utils.timezone.now', return_value=mocked_time):
+            s = self._serializer(trade, self.offerer)
+            self.assertTrue(s.is_valid(), s.errors)
+
+    def test_start_request_too_early(self):
+        """Request fails if more than 1 day before scheduled date."""
+        trade = make_trade(
+            self.offerer,
+            self.requester,
+            status=Trade.Status.ACCEPTED,
+            scheduled_date=self.future,
+        )
+        # Mock timezone.now to be 2 days before scheduled date
+        mocked_time = self.future - timedelta(days=2)
+        with patch('django.utils.timezone.now', return_value=mocked_time):
+            s = self._serializer(trade, self.offerer)
+            self.assertFalse(s.is_valid())
+            self.assertIn("non_field_errors", s.errors)
+
+    def test_start_request_too_late(self):
+        """Request fails if more than 5 hours after scheduled date."""
+        trade = make_trade(
+            self.offerer,
+            self.requester,
+            status=Trade.Status.ACCEPTED,
+            scheduled_date=self.future,
+        )
+        # Mock timezone.now to be 6 hours after scheduled date
+        mocked_time = self.future + timedelta(hours=6)
+        with patch('django.utils.timezone.now', return_value=mocked_time):
+            s = self._serializer(trade, self.offerer)
+            self.assertFalse(s.is_valid())
+            self.assertIn("non_field_errors", s.errors)
+
+    def test_non_participant_cannot_request_start(self):
+        """Only trade participants can request to start."""
+        trade = make_trade(
+            self.offerer,
+            self.requester,
+            status=Trade.Status.ACCEPTED,
+            scheduled_date=self.future,
+        )
+        outsider = make_user(username="outsider_start", email="outsider_start@x.com")
+        s = self._serializer(trade, outsider)
+        self.assertFalse(s.is_valid())
+        self.assertIn("non_field_errors", s.errors)
+
+    def test_only_accepted_trades_can_be_started(self):
+        """Start request fails if trade is not in ACCEPTED status."""
+        trade = make_trade(
+            self.offerer,
+            self.requester,
+            status=Trade.Status.PENDING,
+            scheduled_date=self.future,
+        )
+        s = self._serializer(trade, self.offerer)
+        self.assertFalse(s.is_valid())
+        self.assertIn("non_field_errors", s.errors)
+
+    def test_requester_can_request_start(self):
+        """Requester (in addition to offerer) can request to start."""
+        trade = make_trade(
+            self.offerer,
+            self.requester,
+            status=Trade.Status.ACCEPTED,
+            scheduled_date=self.future,
+        )
+        mocked_time = self.future - timedelta(hours=12)
+        with patch('django.utils.timezone.now', return_value=mocked_time):
+            s = self._serializer(trade, self.requester)
+            self.assertTrue(s.is_valid(), s.errors)
+
+
+# ══════════════════════════════════════════════
+#  TRADE CONFIRM START
+# ══════════════════════════════════════════════
+
+class TradeConfirmStartSerializerTests(TestCase):
+
+    def setUp(self):
+        self.offerer = make_user(username="off_confirm_start", email="off_confirm_start@x.com")
+        self.requester = make_user(username="req_confirm_start", email="req_confirm_start@x.com")
+
+    def _serializer(self, trade, user):
+        return TradeConfirmStartSerializer(
+            data={},
+            context={
+                "trade": trade,
+                "request": _request(user),
+            },
+        )
+
+    def test_valid_confirm_start(self):
+        """Second participant can confirm the first participant's start request."""
+        trade = make_trade(
+            self.offerer,
+            self.requester,
+            status=Trade.Status.ACCEPTED,
+        )
+        trade.started_at = timezone.now()
+        trade.started_by = self.offerer
+        trade.save()
+
+        s = self._serializer(trade, self.requester)
+        self.assertTrue(s.is_valid(), s.errors)
+
+    def test_non_participant_cannot_confirm_start(self):
+        """Only trade participants can confirm start."""
+        trade = make_trade(
+            self.offerer,
+            self.requester,
+            status=Trade.Status.ACCEPTED,
+        )
+        trade.started_at = timezone.now()
+        trade.started_by = self.offerer
+        trade.save()
+
+        outsider = make_user(username="outsider_confirm", email="outsider_confirm@x.com")
+        s = self._serializer(trade, outsider)
+        self.assertFalse(s.is_valid())
+        self.assertIn("non_field_errors", s.errors)
+
+    def test_no_started_at_pending_fails(self):
+        """Confirm fails if there's no pending start request."""
+        trade = make_trade(
+            self.offerer,
+            self.requester,
+            status=Trade.Status.ACCEPTED,
+        )
+        # started_at is None by default
+        s = self._serializer(trade, self.requester)
+        self.assertFalse(s.is_valid())
+        self.assertIn("non_field_errors", s.errors)
+
+    def test_only_accepted_trades_can_confirm_start(self):
+        """Confirm fails if trade is not in ACCEPTED status."""
+        trade = make_trade(
+            self.offerer,
+            self.requester,
+            status=Trade.Status.PENDING,
+        )
+        trade.started_at = timezone.now()
+        trade.started_by = self.offerer
+        trade.save()
+
+        s = self._serializer(trade, self.requester)
+        self.assertFalse(s.is_valid())
+        self.assertIn("non_field_errors", s.errors)
+
+    def test_cannot_confirm_own_start_request(self):
+        """The person who requested the start cannot confirm it."""
+        trade = make_trade(
+            self.offerer,
+            self.requester,
+            status=Trade.Status.ACCEPTED,
+        )
+        trade.started_at = timezone.now()
+        trade.started_by = self.offerer
+        trade.save()
+
+        s = self._serializer(trade, self.offerer)
+        self.assertFalse(s.is_valid())
+        self.assertIn("non_field_errors", s.errors)
+
+
+# ══════════════════════════════════════════════
+#  TRADE END REQUEST
+# ══════════════════════════════════════════════
+
+class TradeEndRequestSerializerTests(TestCase):
+
+    def setUp(self):
+        self.offerer = make_user(username="off_end", email="off_end@x.com")
+        self.requester = make_user(username="req_end", email="req_end@x.com")
+
+    def _serializer(self, trade, user):
+        return TradeEndRequestSerializer(
+            data={},
+            context={
+                "trade": trade,
+                "request": _request(user),
+            },
+        )
+
+    def test_valid_end_request(self):
+        """Participant in IN_PROGRESS trade can request to end."""
+        trade = make_trade(
+            self.offerer,
+            self.requester,
+            status=Trade.Status.IN_PROGRESS,
+        )
+        s = self._serializer(trade, self.offerer)
+        self.assertTrue(s.is_valid(), s.errors)
+
+    def test_non_participant_cannot_request_end(self):
+        """Only trade participants can request to end."""
+        trade = make_trade(
+            self.offerer,
+            self.requester,
+            status=Trade.Status.IN_PROGRESS,
+        )
+        outsider = make_user(username="outsider_end", email="outsider_end@x.com")
+        s = self._serializer(trade, outsider)
+        self.assertFalse(s.is_valid())
+        self.assertIn("non_field_errors", s.errors)
+
+    def test_only_in_progress_trades_can_end(self):
+        """End request fails if trade is not IN_PROGRESS."""
+        trade = make_trade(
+            self.offerer,
+            self.requester,
+            status=Trade.Status.ACCEPTED,
+        )
+        s = self._serializer(trade, self.offerer)
+        self.assertFalse(s.is_valid())
+        self.assertIn("non_field_errors", s.errors)
+
+    def test_requester_can_request_end(self):
+        """Requester can also request to end the trade."""
+        trade = make_trade(
+            self.offerer,
+            self.requester,
+            status=Trade.Status.IN_PROGRESS,
+        )
+        s = self._serializer(trade, self.requester)
+        self.assertTrue(s.is_valid(), s.errors)
+
+
+# ══════════════════════════════════════════════
+#  TRADE CONFIRM END
+# ══════════════════════════════════════════════
+
+class TradeConfirmEndSerializerTests(TestCase):
+
+    def setUp(self):
+        self.offerer = make_user(username="off_confirm_end", email="off_confirm_end@x.com")
+        self.requester = make_user(username="req_confirm_end", email="req_confirm_end@x.com")
+
+    def _serializer(self, trade, user):
+        return TradeConfirmEndSerializer(
+            data={},
+            context={
+                "trade": trade,
+                "request": _request(user),
+            },
+        )
+
+    def test_valid_confirm_end(self):
+        """Second participant can confirm the first participant's end request."""
+        trade = make_trade(
+            self.offerer,
+            self.requester,
+            status=Trade.Status.IN_PROGRESS,
+        )
+        s = self._serializer(trade, self.requester)
+        self.assertTrue(s.is_valid(), s.errors)
+
+    def test_non_participant_cannot_confirm_end(self):
+        """Only trade participants can confirm end."""
+        trade = make_trade(
+            self.offerer,
+            self.requester,
+            status=Trade.Status.IN_PROGRESS,
+        )
+        outsider = make_user(username="outsider_confirm_end", email="outsider_confirm_end@x.com")
+        s = self._serializer(trade, outsider)
+        self.assertFalse(s.is_valid())
+        self.assertIn("non_field_errors", s.errors)
+
+    def test_only_in_progress_trades_can_confirm_end(self):
+        """Confirm end fails if trade is not IN_PROGRESS."""
+        trade = make_trade(
+            self.offerer,
+            self.requester,
+            status=Trade.Status.ACCEPTED,
+        )
+        s = self._serializer(trade, self.requester)
+        self.assertFalse(s.is_valid())
+        self.assertIn("non_field_errors", s.errors)
+
+    def test_offerer_can_confirm_end(self):
+        """Offerer can also confirm the end of the trade."""
+        trade = make_trade(
+            self.offerer,
+            self.requester,
+            status=Trade.Status.IN_PROGRESS,
+        )
+        s = self._serializer(trade, self.offerer)
+        self.assertTrue(s.is_valid(), s.errors)

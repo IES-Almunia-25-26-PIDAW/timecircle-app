@@ -9,6 +9,8 @@ import Cropper from 'react-easy-crop';
 import type { Area } from 'react-easy-crop/types';
 import { CATEGORIES } from '../data/mockData';
 
+const STAR_POSITIONS = ['first', 'second', 'third', 'fourth', 'fifth'];
+
 const BADGE_CONFIG = {
   gold:   { label: 'Vecino de Oro',    emoji: '🥇', className: 'bg-amber-100 text-amber-700 border border-amber-300' },
   silver: { label: 'Vecino de Plata',  emoji: '🥈', className: 'bg-slate-100 text-slate-600 border border-slate-300' },
@@ -58,7 +60,7 @@ const EditProfileModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       setAvatarPreview(null);
       return;
     }
-    if (!f.type || !f.type.startsWith('image/')) {
+    if (!f.type?.startsWith('image/')) {
       setAvatarFile(null);
       setAvatarPreview(null);
       return;
@@ -75,7 +77,7 @@ const EditProfileModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     if (src.startsWith('blob:')) return src;
     if (src.startsWith('data:image/')) return src;
     try {
-      const parsed = new URL(src, window.location.origin);
+      const parsed = new URL(src, globalThis.location.origin);
       if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
         return parsed.href;
       }
@@ -219,8 +221,8 @@ const EditProfileModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Radio de búsqueda (km)</label>
-              <input type="number" min={1} value={searchRadiusKm} onChange={e => setSearchRadiusKm(Number(e.target.value || 0))} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50" style={{ fontSize: '0.875rem' }} />
+              <label htmlFor="edit-search-radius" className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Radio de búsqueda (km)</label>
+              <input id="edit-search-radius" type="number" min={1} value={searchRadiusKm} onChange={e => setSearchRadiusKm(Number(e.target.value || 0))} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50" style={{ fontSize: '0.875rem' }} />
             </div>
             <div className="flex items-center gap-2">
               <input id="searchMyCityOnly" type="checkbox" checked={searchMyCityOnly} onChange={e => setSearchMyCityOnly(e.target.checked)} className="w-4 h-4" />
@@ -230,8 +232,8 @@ const EditProfileModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Máx. distancia para intercambios (km)</label>
-              <input type="number" min={1} value={maxTradeDistanceKm} onChange={e => setMaxTradeDistanceKm(Number(e.target.value || 0))} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50" style={{ fontSize: '0.875rem' }} />
+              <label htmlFor="edit-max-distance" className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Máx. distancia para intercambios (km)</label>
+              <input id="edit-max-distance" type="number" min={1} value={maxTradeDistanceKm} onChange={e => setMaxTradeDistanceKm(Number(e.target.value || 0))} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50" style={{ fontSize: '0.875rem' }} />
             </div>
             <div className="flex items-center gap-2">
               <input id="tradeMyCityOnly" type="checkbox" checked={tradeMyCityOnly} onChange={e => setTradeMyCityOnly(e.target.checked)} className="w-4 h-4" />
@@ -244,7 +246,7 @@ const EditProfileModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             <div className="text-slate-500 text-sm">Esto guardará coordenadas privadas y rellenará ciudad/país si están disponibles.</div>
           </div>
           <div>
-            <label className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Foto de perfil</label>
+            <label htmlFor="edit-avatar" className="block text-slate-700 mb-1.5" style={{ fontSize: '0.875rem', fontWeight: 500 }}>Foto de perfil</label>
             {showCropper && avatarPreview && (
               <div className="p-3 bg-slate-50 rounded-xl mb-3">
                 <div style={{ position: 'relative', width: '100%', height: 320 }}>
@@ -313,7 +315,7 @@ export const Profile: React.FC = () => {
   const [activeTab, setActiveTab]   = useState<'services' | 'reviews' | 'stats'>('services');
   const [messaging, setMessaging]   = useState(false);
 
-  const user = getUserById(id!);
+  const user = getUserById(id);
   if (!user) return (
     <div className="text-center py-20 text-slate-400">
       <Loader2 className="w-8 h-8 animate-spin mx-auto mb-3 opacity-50" />
@@ -498,7 +500,7 @@ export const Profile: React.FC = () => {
                         <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{reviewer?.name || 'Usuario'}</div>
                         <div className="flex items-center gap-0.5">
                           {Array.from({ length: 5 }).map((_, i) => (
-                            <Star key={i} className={`w-3.5 h-3.5 ${i < review.rating ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`} />
+                            <Star key={`${review.id}-${STAR_POSITIONS[i]}`} className={`w-3.5 h-3.5 ${i < review.rating ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`} />
                           ))}
                         </div>
                       </div>

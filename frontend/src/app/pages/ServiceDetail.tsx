@@ -37,7 +37,7 @@ const validateBookingParams = (
   currentUser: any,
   trades: any[],
   getServiceById: (id: string) => any,
-) => {
+): { error: string } | { proposedCredits: number } => {
   if (!scheduledDate) return { error: 'Por favor selecciona una fecha' };
   if (!scheduledTime) return { error: 'Por favor selecciona una hora' };
   const proposedCredits = Number(creditsAmount || service.credits);
@@ -53,6 +53,68 @@ const validateBookingParams = (
   const selectedEnd = new Date(selected.getTime() + (service.duration || 0) * 60000);
   if (isOverlap(selected, selectedEnd, myTrades, getServiceById)) return { error: 'Tienes otra cita que se solapa en ese horario. Elige otra hora o fecha.' };
   return { proposedCredits };
+};
+
+// Helper to validate date is at least 1 day in future
+const isDateTooSoon = (selectedDate: Date): boolean => {
+  const todayMidnight = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+  const minAllowed = new Date(todayMidnight.getTime() + 24 * 60 * 60 * 1000);
+  return selectedDate.getTime() < minAllowed.getTime();
+};
+
+// Factory to create confirmed trade action handler
+const createTradeActionHandler = async (
+  confirmMessage: string,
+  action: () => Promise<void>,
+  showConfirm: (msg: string) => Promise<boolean>,
+): Promise<void> => {
+  if (!(await showConfirm(confirmMessage))) return;
+  try {
+    await action();
+  } catch (e) {
+    console.error(e);
+  }
+};
+
+// Helper to find user's active trade for a service
+const getMyActiveTrade = (
+  trades: any[],
+  serviceId: string,
+  currentUserId: string | undefined,
+): any => {
+  if (!currentUserId) return undefined;
+  return trades.find(t =>
+    t.serviceId === serviceId &&
+    ['accepted', 'in_progress'].includes(t.status) &&
+    (t.offererId === currentUserId || t.requesterId === currentUserId)
+  );
+};
+
+// Helper to determine if user can show exact location
+const canShowExactLocation = (
+  owner: any,
+  currentUser: any,
+): boolean => {
+  if (!owner) return false;
+  return owner.shareExactLocation || (currentUser && currentUser.id === owner.id) || currentUser?.isAdmin;
+};
+
+// Helper to check if exact location is available to display
+const hasExactLocationToShow = (
+  owner: any,
+  currentUser: any,
+): boolean => {
+  const canShow = canShowExactLocation(owner, currentUser);
+  if (!canShow) return false;
+  const lat = owner?.latitude ?? null;
+  const lon = owner?.longitude ?? null;
+  return Number.isFinite(lat) && Number.isFinite(lon);
+};
+
+// Helper to get location display string
+const getOwnerLocation = (owner: any): string => {
+  if (!owner?.city) return 'Ubicación no disponible';
+  return owner.city + (owner.country ? ', ' + owner.country : '');
 };
 
 const BookingForm: React.FC<{
@@ -142,7 +204,7 @@ const ActiveTradeActions: React.FC<{
   return null;
 };
 
-export { parseSelected, isOverlap, validateBookingParams, BookingForm, ActiveTradeActions };
+export { parseSelected, isOverlap, validateBookingParams, isDateTooSoon, getMyActiveTrade, getOwnerLocation, canShowExactLocation, hasExactLocationToShow, BookingForm, ActiveTradeActions };
 
 export const ServiceDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -163,7 +225,7 @@ export const ServiceDetail: React.FC = () => {
   const [booking, setBooking]             = useState(false);
   const [messaging, setMessaging]         = useState(false);
 
-  const service = getServiceById(id!);
+  const service = getServiceById(id);
   if (!service) return (
     <div className="text-center py-20 text-slate-400">
       <Loader2 className="w-8 h-8 animate-spin mx-auto mb-3 opacity-50" />
@@ -179,37 +241,32 @@ export const ServiceDetail: React.FC = () => {
   const completedOnService = trades.filter(t => t.serviceId === service.id && t.status === 'completed').length;
   const ownerLat = owner?.latitude ?? null;
   const ownerLon = owner?.longitude ?? null;
-  const canShowExact = owner && (owner.shareExactLocation || (currentUser && currentUser.id === owner.id) || currentUser?.isAdmin);
-  const hasExactLocation = canShowExact && Number.isFinite(ownerLat) && Number.isFinite(ownerLon);
+  const hasExactLocation = hasExactLocationToShow(owner, currentUser);
   const minDateStr = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-  // Use the extracted validateBookingParams helper
   const validateBooking = () => validateBookingParams(scheduledDate, scheduledTime, creditsAmount, service, currentUser, trades, getServiceById);
-
-  // derive owner location string without nested ternaries
-  let ownerLocation = 'Ubicación no disponible';
-  if (owner?.city) {
-    ownerLocation = owner.city + (owner.country ? ', ' + owner.country : '');
-  }
+  const ownerLocation = getOwnerLocation(owner);
+  const myActiveTrade = getMyActiveTrade(trades, service.id, currentUser?.id);
 
   const handleBook = async () => {
     setBookError('');
     try {
       const v = validateBooking();
-      if ((v as any).error) { setBookError((v as any).error); return; }
-      const proposedCredits = (v as any).proposedCredits as number;
+      if ('error' in v) { setBookError(v.error); return; }
+      const proposedCredits = v.proposedCredits;
 
-      const selected2 = parseSelected(scheduledDate, scheduledTime);
-      const todayMidnight = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
-      const minAllowed = new Date(todayMidnight.getTime() + 24 * 60 * 60 * 1000);
-      if (selected2.getTime() < minAllowed.getTime()) { setBookError('La fecha no puede ser anterior a hoy ni con menos de 1 día de antelación.'); return; }
+      const selected = parseSelected(scheduledDate, scheduledTime);
+      if (isDateTooSoon(selected)) {
+        setBookError('La fecha no puede ser anterior a hoy ni con menos de 1 día de antelación.');
+        return;
+      }
 
       setBooking(true);
       const result = await createTrade({
         serviceId:     service.id,
-        offererId:     service.type === 'offer' ? service.userId : currentUser!.id,
-        requesterId:   service.type === 'offer' ? currentUser!.id : service.userId,
+        offererId:     service.type === 'offer' ? service.userId : currentUser?.id || '',
+        requesterId:   service.type === 'offer' ? currentUser?.id || '' : service.userId,
         status:        'pending',
-        scheduledDate: selected2.toISOString(),
+        scheduledDate: selected.toISOString(),
         creditsAmount: proposedCredits,
         notes,
       });
@@ -231,24 +288,24 @@ export const ServiceDetail: React.FC = () => {
     if (convId) navigate(`/messages?conv=${convId}`);
   };
 
-  // Trade actions for this service (if current user is participant)
-  const myActiveTrade = trades.find(t => t.serviceId === service.id && ['accepted', 'in_progress'].includes(t.status) && (t.offererId === currentUser?.id || t.requesterId === currentUser?.id));
-
   const handleRequestStart = async () => {
-    if (!(await showConfirm('Solicitar inicio de la actividad?'))) return;
-    try { await requestStart(myActiveTrade!.id); } catch (e) { console.error(e); }
+    if (!myActiveTrade) return;
+    return createTradeActionHandler('Solicitar inicio de la actividad?', () => requestStart(myActiveTrade.id), showConfirm);
   };
+  
   const handleConfirmStart = async () => {
-    if (!(await showConfirm('Confirmar inicio solicitado por la otra parte?'))) return;
-    try { await confirmStart(myActiveTrade!.id); } catch (e) { console.error(e); }
+    if (!myActiveTrade) return;
+    return createTradeActionHandler('Confirmar inicio solicitado por la otra parte?', () => confirmStart(myActiveTrade.id), showConfirm);
   };
+  
   const handleRequestEnd = async () => {
-    if (!(await showConfirm('Solicitar finalización de la actividad?'))) return;
-    try { await requestEnd(myActiveTrade!.id); } catch (e) { console.error(e); }
+    if (!myActiveTrade) return;
+    return createTradeActionHandler('Solicitar finalización de la actividad?', () => requestEnd(myActiveTrade.id), showConfirm);
   };
+  
   const handleConfirmEnd = async () => {
-    if (!(await showConfirm('Confirmar finalización solicitada por la otra parte?'))) return;
-    try { await confirmEnd(myActiveTrade!.id); } catch (e) { console.error(e); }
+    if (!myActiveTrade) return;
+    return createTradeActionHandler('Confirmar finalización solicitada por la otra parte?', () => confirmEnd(myActiveTrade.id), showConfirm);
   };
 
   const handleDelete = async () => {
@@ -372,7 +429,7 @@ export const ServiceDetail: React.FC = () => {
                           <div className="text-slate-700" style={{ fontSize: '0.875rem', fontWeight: 500 }}>{reviewer?.name || 'Usuario'}</div>
                           <div className="flex items-center gap-0.5">
                             {Array.from({ length: 5 }).map((_, i) => (
-                              <Star key={i} className={`w-3 h-3 ${i < review.rating ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`} />
+                              <Star key={`${review.id}-star-${i}`} className={`w-3 h-3 ${i < review.rating ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`} />
                             ))}
                           </div>
                         </div>

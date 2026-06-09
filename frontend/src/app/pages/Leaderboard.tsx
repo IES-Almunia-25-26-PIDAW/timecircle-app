@@ -94,10 +94,6 @@ export const Leaderboard: React.FC = () => {
   const [country, setCountry] = useState<string>('all');
   const PER_PAGE = 10;
 
-  // Exclude specific countries/cities from lists and results
-  const EXCLUDED_COUNTRIES = ['spain'];
-  const EXCLUDED_CITIES = ['jerez'];
-
   // Resetting page is handled in the user interaction handlers
   // (e.g. when clicking sort or changing filters) so we avoid
   // interfering with initialization from URL search params.
@@ -128,8 +124,6 @@ export const Leaderboard: React.FC = () => {
 
   const ranked = [...users]
     .filter(u => !u.isAdmin)
-    .filter(u => !(u.country && EXCLUDED_COUNTRIES.includes(u.country.toLowerCase())))
-    .filter(u => !(u.city && EXCLUDED_CITIES.includes(u.city.toLowerCase())))
     .filter(u => country === 'all' ? true : (u.country || '').toLowerCase() === country.toLowerCase())
     .filter(u => city === 'all' ? true : (u.city || '').toLowerCase() === city.toLowerCase())
     .sort((a, b) => b[sortBy] - a[sortBy]);
@@ -137,16 +131,14 @@ export const Leaderboard: React.FC = () => {
   const top3 = ranked.slice(0, 3);
   const rest = ranked.slice(3);
   // derive country options from full user list (exclude admins and empty)
-  const countries = Array.from(new Set(users.map(u => u.country).filter(Boolean)
-    .filter(c => !EXCLUDED_COUNTRIES.includes(c.toLowerCase())))) as string[];
+  const countries = Array.from(new Set(users.map(u => u.country).filter(Boolean))) as string[];
   countries.sort((a, b) => a.localeCompare(b));
 
   // derive city options from full user list, but scoped to selected country
   const cities = Array.from(new Set(users
     .filter(u => country === 'all' ? true : (u.country || '').toLowerCase() === country.toLowerCase())
     .map(u => u.city)
-    .filter(Boolean)
-    .filter(c => !EXCLUDED_CITIES.includes(c.toLowerCase())))) as string[];
+    .filter(Boolean))) as string[];
   cities.sort((a, b) => a.localeCompare(b));
   const totalPages = Math.max(1, Math.ceil(rest.length / PER_PAGE));
   const currentPage = Math.min(Math.max(1, page), totalPages);
@@ -306,7 +298,7 @@ export const Leaderboard: React.FC = () => {
             >Prev</button>
             {Array.from({ length: totalPages }).map((_, i) => (
               <button
-                key={i}
+                key={`page-${i + 1}`}
                 onClick={() => setPage(i + 1)}
                 className={`px-3 py-1 rounded-lg ${currentPage === i + 1 ? 'bg-teal-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}
               >{i + 1}</button>

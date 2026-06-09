@@ -49,7 +49,7 @@ export const NewService: React.FC = () => {
     setSubmitting(true);
     await new Promise(r => setTimeout(r, 500));
     addService({
-      userId: currentUser!.id,
+      userId: currentUser.id,
       type,
       title: title.trim(),
       description: description.trim(),

@@ -797,7 +797,6 @@ class TradeStatusUpdateSerializer(serializers.ModelSerializer):
             instance.completed_at = timezone.now()
             self._transfer_credits(instance)
 
-        # If accepted, schedule auto-cancel at scheduled_date + 5 hours
         if new_status == Trade.Status.ACCEPTED:
             try:
                 if instance.scheduled_date:

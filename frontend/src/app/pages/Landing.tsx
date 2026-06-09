@@ -3,6 +3,8 @@ import { Link } from 'react-router';
 import { Clock, Users, Star, ArrowRight, Shield, Heart, Sparkles, CheckCircle } from 'lucide-react';
 import { ThemeToggle } from '../components/ThemeToggle';
 
+const STAR_POSITIONS = ['first', 'second', 'third', 'fourth', 'fifth'];
+
 const communityImg = "https://images.unsplash.com/photo-1769837230424-bf083c309ab1?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxuZWlnaGJvcmhvb2QlMjBjb21tdW5pdHklMjB2b2x1bnRlZXJzJTIwb3V0ZG9vcnxlbnwxfHx8fDE3NzI4MDM1MTF8MA&ixlib=rb-4.1.0&q=80&w=1080";
 
 const features = [
@@ -176,7 +178,7 @@ export const Landing: React.FC = () => {
               <div key={name} className="p-6 rounded-2xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 hover:shadow-md dark:hover:shadow-slate-900/60 transition-shadow">
                 <div className="flex items-center gap-1 mb-3">
                   {Array.from({ length: rating }).map((_, i) => (
-                    <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
+                    <Star key={`${name}-${STAR_POSITIONS[i]}`} className="w-4 h-4 fill-amber-400 text-amber-400" />
                   ))}
                 </div>
                 <p className="text-slate-700 dark:text-slate-300 mb-4" style={{ fontSize: '0.9rem', lineHeight: 1.6 }}>"{text}"</p>

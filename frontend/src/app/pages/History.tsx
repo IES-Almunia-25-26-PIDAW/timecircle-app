@@ -7,6 +7,8 @@ import { useApp } from '../context/AppContext';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { CATEGORIES, type Trade } from '../data/mockData';
 
+const STAR_POSITIONS = ['first', 'second', 'third', 'fourth', 'fifth'];
+
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
   pending: { label: 'Pendiente', className: 'bg-amber-100 text-amber-700' },
   accepted: { label: 'Aceptado', className: 'bg-blue-100 text-blue-700' },
@@ -140,8 +142,8 @@ export const History: React.FC = () => {
                   labelLine={false}
                   style={{ fontSize: 10 }}
                 >
-                  {catData.map((_, index) => (
-                    <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                  {catData.map((cat) => (
+                    <Cell key={`cell-${cat.name}`} fill={PIE_COLORS[catData.indexOf(cat) % PIE_COLORS.length]} />
                   ))}
                 </Pie>
                 <Tooltip formatter={(value) => [`${value} intercambios`]} />
@@ -175,7 +177,7 @@ export const History: React.FC = () => {
                       <div className="text-slate-700" style={{ fontWeight: 500, fontSize: '0.8rem' }}>{reviewer?.name}</div>
                       <div className="flex items-center gap-0.5">
                         {Array.from({ length: 5 }).map((_, i) => (
-                          <Star key={i} className={`w-3 h-3 ${i < review.rating ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`} />
+                          <Star key={`${review.id}-${STAR_POSITIONS[i]}`} className={`w-3 h-3 ${i < review.rating ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`} />
                         ))}
                       </div>
                     </div>

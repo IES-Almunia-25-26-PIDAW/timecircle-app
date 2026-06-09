@@ -86,15 +86,18 @@ def make_trade(
     status: str = Trade.Status.PENDING,
     credits_amount: int = 2,
     days_ahead: int = 3,
+    scheduled_date = None,
 ) -> Trade:
     if service is None:
         service = make_service(offerer, credits=credits_amount)
+    if scheduled_date is None:
+        scheduled_date = timezone.now() + timedelta(days=days_ahead)
     return Trade.objects.create(
         service=service,
         offerer=offerer,
         requester=requester,
         status=status,
-        scheduled_date=timezone.now() + timedelta(days=days_ahead),
+        scheduled_date=scheduled_date,
         credits_amount=credits_amount,
     )
 

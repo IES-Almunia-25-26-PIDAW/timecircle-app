@@ -330,33 +330,108 @@ const ReservationMessageCard: React.FC<{
   );
 };
 
-const renderMessageContent = (msg: Message, isMe: boolean) => {
-    if (msg.messageType === 'trade_proposal') {
-      return <ReservationMessageCard msg={msg} isMe={isMe} />;
-    }
-
-    if (msg.messageType === 'trade_status') {
-      const isAccepted = msg.payload?.action === 'accepted';
-      return (
-        <div className={`rounded-2xl border px-4 py-2.5 text-sm ${
-          isAccepted
-            ? 'border-green-200 bg-green-50 text-green-700'
-            : 'border-red-200 bg-red-50 text-red-700'
-        }`}>
-          {msg.content}
-        </div>
-      );
-    }
+const TradeStatusMessage: React.FC<{ msg: Message }> = ({ msg }) => {
+  const isAccepted = msg.payload?.action === 'accepted';
   return (
-    <div className={`px-4 py-2.5 rounded-2xl ${
-      isMe
-        ? 'bg-teal-600 text-white rounded-br-sm'
-        : 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-slate-100 rounded-bl-sm'
+    <div className={`rounded-2xl border px-4 py-2.5 text-sm ${
+      isAccepted
+        ? 'border-green-200 bg-green-50 text-green-700'
+        : 'border-red-200 bg-red-50 text-red-700'
     }`}>
-      <p style={{ fontSize: '0.875rem', lineHeight: 1.5, wordBreak: 'break-word' }}>
-        {msg.content}
-      </p>
+      {msg.content}
     </div>
+  );
+};
+
+const TextMessage: React.FC<{ msg: Message; isMe: boolean }> = ({ msg, isMe }) => (
+  <div className={`px-4 py-2.5 rounded-2xl ${
+    isMe
+      ? 'bg-teal-600 text-white rounded-br-sm'
+      : 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-slate-100 rounded-bl-sm'
+  }`}>
+    <p style={{ fontSize: '0.875rem', lineHeight: 1.5, wordBreak: 'break-word' }}>
+      {msg.content}
+    </p>
+  </div>
+);
+
+const renderMessageContent = (msg: Message, isMe: boolean) => {
+  if (msg.messageType === 'trade_proposal') return <ReservationMessageCard msg={msg} isMe={isMe} />;
+  if (msg.messageType === 'trade_status') return <TradeStatusMessage msg={msg} />;
+  return <TextMessage msg={msg} isMe={isMe} />;
+};
+
+// Helper function to determine sidebar/main visibility based on state
+const getVisibilityClasses = (showSidebar: boolean) => ({
+  sidebarVisibility: showSidebar ? 'flex' : 'hidden sm:flex',
+  mainVisibility: showSidebar ? 'hidden sm:flex' : 'flex',
+});
+
+// Helper function to find first new message index
+const findFirstNewMessageIdx = (messages: Message[], openSnapshotIds: Set<string>): number => {
+  for (let i = 0; i < messages.length; i++) {
+    if (!openSnapshotIds.has(messages[i].id)) return i;
+  }
+  return -1;
+};
+
+// Helper function to filter conversations by search
+const filterConversations = (
+  conversations: any[],
+  search: string,
+  currentUserId: string | undefined,
+  getUserById: (id: string) => any,
+): any[] => {
+  if (!search) return conversations;
+  return conversations.filter((c) => {
+    const othId = c.participants.find((p: string) => p !== currentUserId);
+    const other = getUserById(othId);
+    return other?.name.toLowerCase().includes(search.toLowerCase());
+  });
+};
+
+// Extracted helper component for loading state
+const MessagesLoadingState: React.FC = () => (
+  <div className="flex justify-center py-8">
+    <Loader2 className="w-6 h-6 animate-spin text-teal-500" />
+  </div>
+);
+
+// Extracted helper component for empty messages state
+const EmptyMessagesState: React.FC<{ otherUserName?: string }> = ({ otherUserName = 'esta persona' }) => (
+  <div className="flex flex-col items-center justify-center h-full text-slate-400">
+    <div className="w-14 h-14 rounded-2xl bg-teal-50 dark:bg-teal-950/30 flex items-center justify-center mb-3">
+      <MessageCircle className="w-7 h-7 text-teal-400" />
+    </div>
+    <p style={{ fontSize: '0.95rem', fontWeight: 500 }}>Inicia la conversación</p>
+    <p className="text-slate-300 dark:text-slate-600 mt-1" style={{ fontSize: '0.8rem' }}>
+      Di hola a {otherUserName.split(' ')[0]} 👋
+    </p>
+  </div>
+);
+
+// Helper function to render messages area based on state
+const renderMessagesAreaContent = (
+  loadingMsgs: boolean,
+  messages: Message[],
+  firstNewIdx: number,
+  currentUser: any,
+  otherUser: any,
+  otherPresence: OtherPresence,
+  messagesEndRef: React.RefObject<HTMLDivElement | null>,
+) => {
+  if (loadingMsgs) return <MessagesLoadingState />;
+  if (messages.length === 0) return <EmptyMessagesState otherUserName={otherUser?.name} />;
+  
+  return (
+    <MessagesList
+      messages={messages}
+      firstNewIdx={firstNewIdx}
+      currentUser={currentUser}
+      otherUser={otherUser}
+      otherPresence={otherPresence}
+      messagesEndRef={messagesEndRef}
+    />
   );
 };
 
@@ -415,7 +490,7 @@ const ConvItem: React.FC<{
 }> = ({ conv, selected, otherTyping, onClick }) => {
   const { currentUser, getUserById } = useApp();
   const otherId = conv.participants.find((p) => p !== currentUser?.id);
-  const other = getUserById(otherId!);
+  const other = getUserById(otherId);
 
   return (
     <button
@@ -607,8 +682,6 @@ export const Messages: React.FC = () => {
       try {
         const presence = await apiGetPresence(otherUserId, selectedConvId);
         setOtherPresence(presence);
-      } catch (e) {
-        // ignore poll errors
       } finally {
         presencePollingRef.current = false;
       }
@@ -671,7 +744,7 @@ export const Messages: React.FC = () => {
         ws.subscribe(selectedConvId);
         ws.onMessage(handleWsMessage);
         return () => {
-          try { ws.unsubscribe(selectedConvId); } catch (e) { console.warn('Failed to unsubscribe from WS messages', e); }
+          ws.unsubscribe(selectedConvId);
         };
       } catch (e) {
         console.warn('WebSocket not available - falling back to polling for messages', e);
@@ -726,74 +799,23 @@ export const Messages: React.FC = () => {
     }
     if (typingStopTimer.current) clearTimeout(typingStopTimer.current);
 
+    // Reset state for new conversation
     setSelectedConvId(convId);
     setShowSidebar(false);
     setMessages([]);
     setOtherPresence({ status: 'offline', is_typing: false });
     openSnapshotIds.current = new Set();
-    hasMarkedReadRef.current = null; // Reset for new conversation
+    hasMarkedReadRef.current = null;
     setMessageText('');
   };
 
   if (!currentUser) return null;
 
-  // First new message index (after snapshot)
-  let firstNewIdx = -1;
-  for (let i = 0; i < messages.length; i++) {
-    if (!openSnapshotIds.current.has(messages[i].id)) {
-      firstNewIdx = i;
-      break;
-    }
-  }
-
-  const filteredConvs = conversations.filter((c) => {
-    if (!search) return true;
-    const othId = c.participants.find((p) => p !== currentUser.id);
-    const other = getUserById(othId!);
-    return other?.name.toLowerCase().includes(search.toLowerCase());
-  });
-
+  // Compute derived values
+  const firstNewIdx = findFirstNewMessageIdx(messages, openSnapshotIds.current);
+  const filteredConvs = filterConversations(conversations, search, currentUser?.id, getUserById);
   const presenceLbl = presenceLabel(otherPresence?.status ?? 'offline');
-
-  const sidebarVisibility = showSidebar ? 'flex' : 'hidden sm:flex';
-  const mainVisibility = showSidebar ? 'hidden sm:flex' : 'flex';
-
-  const renderMessagesArea = () => {
-  if (loadingMsgs) {
-    return (
-      <div className="flex justify-center py-8">
-        <Loader2 className="w-6 h-6 animate-spin text-teal-500" />
-      </div>
-    );
-  }
-
-  if (messages.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-slate-400">
-        <div className="w-14 h-14 rounded-2xl bg-teal-50 dark:bg-teal-950/30 flex items-center justify-center mb-3">
-          <MessageCircle className="w-7 h-7 text-teal-400" />
-        </div>
-        <p style={{ fontSize: '0.95rem', fontWeight: 500 }}>Inicia la conversación</p>
-        <p className="text-slate-300 dark:text-slate-600 mt-1" style={{ fontSize: '0.8rem' }}>
-          Di hola a {otherUser?.name.split(' ')[0]} 👋
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <MessagesList
-      messages={messages}
-      firstNewIdx={firstNewIdx}
-      currentUser={currentUser}
-      otherUser={otherUser}
-      otherPresence={otherPresence ?? { status: 'offline', is_typing: false }}
-      messagesEndRef={messagesEndRef}
-    />
-  );
-};
-
-// (helpers export will be placed after component to avoid interrupting JSX)
+  const { sidebarVisibility, mainVisibility } = getVisibilityClasses(showSidebar);
 
   return (
     <>
@@ -926,7 +948,15 @@ export const Messages: React.FC = () => {
 
               {/* Messages area */}
               <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2">
-                {renderMessagesArea()}
+                {renderMessagesAreaContent(
+                  loadingMsgs,
+                  messages,
+                  firstNewIdx,
+                  currentUser,
+                  otherUser,
+                  otherPresence ?? { status: 'offline', is_typing: false },
+                  messagesEndRef,
+                )}
               </div>
 
               {/* Input */}
@@ -994,26 +1024,27 @@ export const Messages: React.FC = () => {
 
     // Additional test-only helper with many branches
     export const __coverageHelper2 = (x: number) => {
-      let out = 0
-      if (x & 1) { out += 1 } else { out += 100 }
-      if (x & 2) { out += 2 } else { out += 200 }
-      if (x & 4) { out += 3 } else { out += 300 }
-      if (x & 8) { out += 4 } else { out += 400 }
-      if (x & 16) { out += 5 } else { out += 500 }
-      if (x & 32) { out += 6 } else { out += 600 }
-      if (x & 64) { out += 7 } else { out += 700 }
-      if (x & 128) { out += 8 } else { out += 800 }
-      if (x & 256) { out += 9 } else { out += 900 }
-      if (x & 512) { out += 10 } else { out += 1000 }
-      if (x & 1024) { out += 11 } else { out += 1100 }
-      if (x & 2048) { out += 12 } else { out += 1200 }
-      if (x & 4096) { out += 13 } else { out += 1300 }
-      if (x & 8192) { out += 14 } else { out += 1400 }
-      if (x & 16384) { out += 15 } else { out += 1500 }
-      if (x & 32768) { out += 16 } else { out += 1600 }
-      if (x & 65536) { out += 17 } else { out += 1700 }
-      if (x & 131072) { out += 18 } else { out += 1800 }
-      if (x & 262144) { out += 19 } else { out += 1900 }
-      if (x & 524288) { out += 20 } else { out += 2000 }
-      return out
+      const bitConfigs = [
+        { mask: 1, pos: 1, neg: 100 },
+        { mask: 2, pos: 2, neg: 200 },
+        { mask: 4, pos: 3, neg: 300 },
+        { mask: 8, pos: 4, neg: 400 },
+        { mask: 16, pos: 5, neg: 500 },
+        { mask: 32, pos: 6, neg: 600 },
+        { mask: 64, pos: 7, neg: 700 },
+        { mask: 128, pos: 8, neg: 800 },
+        { mask: 256, pos: 9, neg: 900 },
+        { mask: 512, pos: 10, neg: 1000 },
+        { mask: 1024, pos: 11, neg: 1100 },
+        { mask: 2048, pos: 12, neg: 1200 },
+        { mask: 4096, pos: 13, neg: 1300 },
+        { mask: 8192, pos: 14, neg: 1400 },
+        { mask: 16384, pos: 15, neg: 1500 },
+        { mask: 32768, pos: 16, neg: 1600 },
+        { mask: 65536, pos: 17, neg: 1700 },
+        { mask: 131072, pos: 18, neg: 1800 },
+        { mask: 262144, pos: 19, neg: 1900 },
+        { mask: 524288, pos: 20, neg: 2000 },
+      ];
+      return bitConfigs.reduce((out, { mask, pos, neg }) => out + ((x & mask) ? pos : neg), 0);
     }

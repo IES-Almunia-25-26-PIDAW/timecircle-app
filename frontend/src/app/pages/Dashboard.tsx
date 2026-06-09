@@ -40,6 +40,8 @@ const getLastSixMonthsActivity = (trades: ReturnType<typeof useApp>['trades']) =
 
 type BadgeInfo = { label: string; className: string };
 
+const STAR_POSITIONS = ['first', 'second', 'third', 'fourth', 'fifth'];
+
 const TradeStatusBadge: React.FC<{ status: string }> = ({ status }) => {
   const map: Record<string, BadgeInfo> = {
     pending: { label: 'Pendiente', className: 'bg-amber-100 text-amber-700' },
@@ -346,7 +348,7 @@ export const Dashboard: React.FC = () => {
                 <div key={review.id} className="p-4 bg-slate-50 rounded-xl">
                   <div className="flex items-center gap-1 mb-2">
                     {Array.from({ length: 5 }).map((_, i) => (
-                      <Star key={i} className={`w-3.5 h-3.5 ${i < review.rating ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`} />
+                      <Star key={`${review.id}-${STAR_POSITIONS[i]}`} className={`w-3.5 h-3.5 ${i < review.rating ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`} />
                     ))}
                   </div>
                   <p className="text-slate-600 mb-3" style={{ fontSize: '0.8rem', lineHeight: 1.5 }}>"{review.comment}"</p>

@@ -88,7 +88,7 @@ export const Contact: React.FC = () => {
       await apiSendContactMessage({
         name:    name.trim(),
         email:   email.trim().toLowerCase(),
-        reason:  selectedReason!,
+        reason:  selectedReason,
         message: message.trim(),
       });
       setSent(true);

@@ -1,6 +1,6 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { vi } from 'vitest';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { expect, it, vi } from 'vitest';
 
 // Use Vitest's mocking — must be declared before importing AppContext
 vi.mock('../app/api/endpoints', () => ({
@@ -53,7 +53,7 @@ const Consumer: React.FC = () => {
       <div data-testid="loading">{String(app.loading)}</div>
       <div data-testid="users-count">{String(app.users.length)}</div>
       <div data-testid="current-user">{app.currentUser?.name ?? ''}</div>
-      <button data-testid="register" onClick={() => { void app.register('Name Test', 'a@b.com', 'pass'); }}>Register</button>
+      <button data-testid="register" onClick={() => { app.register('Name Test', 'a@b.com', 'pass'); }}>Register</button>
       <button data-testid="toast" onClick={() => app.showToast('hello')}>Toast</button>
     </div>
   );
@@ -76,108 +76,316 @@ describe('AppContext', () => {
   });
 
   it('handles startConversation errors gracefully', async () => {
+    const { apiCreateConversation } = await import('../app/api/endpoints');
+    vi.mocked(apiCreateConversation).mockRejectedValueOnce(new Error('Network error'));
+
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    let appContext!: ReturnType<typeof useApp>;
+    const Capture: React.FC = () => {
+      appContext = useApp();
+      return <div data-testid="ready">{appContext.currentUser ? 'logged-in' : 'guest'}</div>;
+    };
+
     render(
       <AppProvider>
-        <Consumer />
+        <Capture />
       </AppProvider>
     );
+
+    // Log in so currentUser is populated, otherwise startConversation
+    // returns '' early before ever reaching apiCreateConversation
+    await act(async () => {
+      await appContext.login('u', 'pass');
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('ready').textContent).toBe('logged-in')
+    );
+
+    const result = await act(async () => appContext.startConversation('999'));
+
+    expect(result).toBe('');
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      'Start conversation error',
+      expect.any(Error),
+    );
+
+    consoleErrorSpy.mockRestore();
     consoleWarnSpy.mockRestore();
   });
 
-  it('handles refreshConversationMessages errors', async () => {
-    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    render(
-      <AppProvider>
-        <Consumer />
-      </AppProvider>
-    );
-    consoleWarnSpy.mockRestore();
+it('handles adminDeleteUser errors', async () => {
+  const { apiAdminDeleteUser } = await import('../app/api/endpoints');
+  vi.mocked(apiAdminDeleteUser).mockRejectedValueOnce(new Error('Forbidden'));
+
+  const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+  let appContext!: ReturnType<typeof useApp>;
+  const Capture: React.FC = () => {
+    appContext = useApp();
+    return null;
+  };
+
+  render(
+    <AppProvider>
+      <Capture />
+    </AppProvider>
+  );
+
+  await waitFor(() => expect(appContext).toBeDefined());
+
+  // Should not throw — error is caught internally
+  await act(async () => {
+    await appContext.adminDeleteUser('42');
   });
 
-  it('handles adminDeleteUser errors', async () => {
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    render(
-      <AppProvider>
-        <Consumer />
-      </AppProvider>
-    );
-    consoleSpy.mockRestore();
+  expect(consoleSpy).toHaveBeenCalledWith(
+    'Admin delete user error',
+    expect.any(Error),
+  );
+
+  consoleSpy.mockRestore();
+});
+
+it('handles adminUpdateUser errors', async () => {
+  const { apiAdminUpdateUser } = await import('../app/api/endpoints');
+  vi.mocked(apiAdminUpdateUser).mockRejectedValueOnce(new Error('Forbidden'));
+
+  const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+  let appContext!: ReturnType<typeof useApp>;
+  const Capture: React.FC = () => {
+    appContext = useApp();
+    return null;
+  };
+
+  render(
+    <AppProvider>
+      <Capture />
+    </AppProvider>
+  );
+
+  await waitFor(() => expect(appContext).toBeDefined());
+
+  await act(async () => {
+    await appContext.adminUpdateUser('42', { credits: 10 });
   });
 
-  it('handles adminUpdateUser errors', async () => {
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    render(
-      <AppProvider>
-        <Consumer />
-      </AppProvider>
-    );
-    consoleSpy.mockRestore();
+  expect(consoleSpy).toHaveBeenCalledWith(
+    'Admin update user error',
+    expect.any(Error),
+  );
+
+  consoleSpy.mockRestore();
+});
+
+it('handles addReview errors', async () => {
+  const { apiCreateReview } = await import('../app/api/endpoints');
+  vi.mocked(apiCreateReview).mockRejectedValueOnce(new Error('Unprocessable'));
+
+  const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+  let appContext!: ReturnType<typeof useApp>;
+  const Capture: React.FC = () => {
+    appContext = useApp();
+    return null;
+  };
+
+  render(
+    <AppProvider>
+      <Capture />
+    </AppProvider>
+  );
+
+  await waitFor(() => expect(appContext).toBeDefined());
+
+  await act(async () => {
+    await appContext.addReview({
+      tradeId: '1',
+      reviewerId: '1',
+      revieweeId: '2',
+      rating: 5,
+      comment: 'Great!',
+    });
   });
 
-  it('handles addReview errors', async () => {
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    render(
-      <AppProvider>
-        <Consumer />
-      </AppProvider>
-    );
-    consoleSpy.mockRestore();
-  });
+  expect(consoleSpy).toHaveBeenCalledWith(
+    'Add review error',
+    expect.any(Error),
+  );
+
+  consoleSpy.mockRestore();
+});
 
   it('handles requestLocation without geolocation by checking "in" operator', async () => {
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    let appContext!: ReturnType<typeof useApp>;
+    const Capture: React.FC = () => {
+      appContext = useApp();
+      return null;
+    };
+
+    const originalDescriptor = Object.getOwnPropertyDescriptor(
+      Object.getPrototypeOf(navigator),
+      'geolocation',
+    );
+
+    // Delete from the prototype so `'geolocation' in navigator` is false
+    delete Object.getPrototypeOf(navigator).geolocation;
+
     render(
       <AppProvider>
-        <Consumer />
+        <Capture />
       </AppProvider>
     );
+
+    await waitFor(() => expect(appContext).toBeDefined());
+
+    await act(async () => {
+      await appContext.requestLocation();
+    });
+
+    // Guard returned early — no geolocation API touched, nothing logged
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
+
+    // Restore the prototype property
+    if (originalDescriptor) {
+      Object.defineProperty(
+        Object.getPrototypeOf(navigator),
+        'geolocation',
+        originalDescriptor,
+      );
+    }
+
     consoleWarnSpy.mockRestore();
   });
 
   it('handles requestLocation geolocation error callback', async () => {
-    const mockGetCurrentPosition = vi.fn((success, error) => {
+    const mockGetCurrentPosition = vi.fn((_success, error) => {
       error(new Error('Permission denied'));
     });
 
-    const originalGeolocation = navigator.geolocation;
-    Object.defineProperty(navigator, 'geolocation', {
+    const originalDescriptor = Object.getOwnPropertyDescriptor(
+      Object.getPrototypeOf(navigator),
+      'geolocation',
+    );
+    Object.defineProperty(Object.getPrototypeOf(navigator), 'geolocation', {
       value: { getCurrentPosition: mockGetCurrentPosition },
       configurable: true,
     });
 
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
+    let appContext!: ReturnType<typeof useApp>;
+    const Capture: React.FC = () => {
+      appContext = useApp();
+      return <div data-testid="banner">{String(appContext.showLocationBanner)}</div>;
+    };
+
     render(
       <AppProvider>
-        <Consumer />
+        <Capture />
       </AppProvider>
     );
 
-    consoleWarnSpy.mockRestore();
-    Object.defineProperty(navigator, 'geolocation', {
-      value: originalGeolocation,
-      configurable: true,
+    await waitFor(() => expect(appContext).toBeDefined());
+
+    await act(async () => {
+      await appContext.requestLocation();
     });
+
+    // Error callback sets showLocationBanner = true
+    expect(screen.getByTestId('banner').textContent).toBe('true');
+    // getCurrentPosition is called at least once by requestLocation
+    // (may also be called by AppProvider's auto-prompt useEffect on mount)
+    expect(mockGetCurrentPosition).toHaveBeenCalled();
+
+    consoleWarnSpy.mockRestore();
+    if (originalDescriptor) {
+      Object.defineProperty(
+        Object.getPrototypeOf(navigator),
+        'geolocation',
+        originalDescriptor,
+      );
+    }
   });
 
   it('handles markConversationRead errors', async () => {
+    const { apiMarkConversationRead } = await import('../app/api/endpoints');
+    vi.mocked(apiMarkConversationRead).mockRejectedValueOnce(new Error('Server error'));
+
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    let appContext!: ReturnType<typeof useApp>;
+    const Capture: React.FC = () => {
+      appContext = useApp();
+      return null;
+    };
+
     render(
       <AppProvider>
-        <Consumer />
+        <Capture />
       </AppProvider>
     );
+
+    await waitFor(() => expect(appContext).toBeDefined());
+
+    // Should not throw — error is caught internally
+    await act(async () => {
+      await appContext.markConversationRead('conv-1');
+    });
+
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      'Mark conversation read failed',
+      expect.any(Error),
+    );
+
     consoleWarnSpy.mockRestore();
   });
 
   it('handles refreshUnread errors', async () => {
+    const { apiGetConversations } = await import('../app/api/endpoints');
+
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    let appContext!: ReturnType<typeof useApp>;
+    const Capture: React.FC = () => {
+      appContext = useApp();
+      return null;
+    };
+
     render(
       <AppProvider>
-        <Consumer />
+        <Capture />
       </AppProvider>
     );
+
+    await act(async () => {
+      await appContext.login('u', 'pass');
+    });
+    await waitFor(() => expect(appContext.currentUser).not.toBeNull());
+
+    const realDateNow = Date.now;
+    vi.spyOn(Date, 'now').mockReturnValue(realDateNow() + 10_000);
+
+    vi.mocked(apiGetConversations).mockRejectedValueOnce(new Error('Network error'));
+
+    // Should resolve without throwing — fetchConversations catches internally
+    await expect(
+      act(async () => { await appContext.refreshUnread(); })
+    ).resolves.not.toThrow();
+
+    // The error surfaces in fetchConversations' own catch block
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      'Error fetching conversations',
+      expect.any(Error),
+    );
+
+    vi.spyOn(Date, 'now').mockRestore();
+    consoleErrorSpy.mockRestore();
     consoleWarnSpy.mockRestore();
   });
 });
