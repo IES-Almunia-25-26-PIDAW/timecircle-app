@@ -130,6 +130,16 @@ const mapReview = (r: any): Review => ({
   createdAt: (r.created_at || '').split('T')[0] || '',
 });
 
+export const mergeConversationMessages = (existing: Message[], incoming: Message[]) => {
+  const existingIds = new Set(existing.map(m => m.id));
+  const newMsgs = incoming.filter(m => !existingIds.has(m.id));
+  const updated = existing.map(m => {
+    const fresh = incoming.find(fm => fm.id === m.id);
+    return fresh ? { ...m, read: fresh.read } : m;
+  });
+  return [...updated, ...newMsgs];
+};
+
 // ── TIPO DE CONTEXTO ─────────────────────────────────────────
 
 interface AppContextType {
@@ -283,15 +293,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   }, []);
 
-  const mergeConversationMessages = useCallback((existing: Message[], incoming: Message[]) => {
-    const existingIds = new Set(existing.map(m => m.id));
-    const newMsgs = incoming.filter(m => !existingIds.has(m.id));
-    const updated = existing.map(m => {
-      const fresh = incoming.find(fm => fm.id === m.id);
-      return fresh ? { ...m, read: fresh.read } : m;
-    });
-    return [...updated, ...newMsgs];
-  }, []);
 
   // ── FETCH APP DATA ────────────────────────────────────────
 
@@ -1213,3 +1214,5 @@ export const useApp = () => {
   if (!ctx) throw new Error('useApp must be used within AppProvider');
   return ctx;
 };
+
+export { mapUser, mapService, mapTrade, mapMessage, mapConversation, mapReview };
