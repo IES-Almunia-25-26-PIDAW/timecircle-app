@@ -39,7 +39,7 @@ describe('ServiceDetail helpers and subcomponents', () => {
     expect((insufficient as any).error).toMatch(/No tienes suficientes créditos/i);
 
     const trades = [{ serviceId: 's1', status: 'pending', requesterId: 'u1' }];
-    const same = validateBookingParams('2026-06-10', '10:00', '', service, { id: 'u1', credits: 10 }, trades as any, () => null);
+    const same = validateBookingParams('2026-06-10', '10:00', 0, service, { id: 'u1', credits: 10 }, trades as any, () => null);
     expect((same as any).error).toMatch(/Ya tienes una reserva activa/i);
   });
 
