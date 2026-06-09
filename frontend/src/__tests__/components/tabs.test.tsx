@@ -7,7 +7,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../app/components/u
 
 describe("Tabs components", () => {
   it("renders tabs list, triggers and content", () => {
-    const { container, getByText } = render(
+    const { container } = render(
       <Tabs defaultValue="tab2" className="my-tabs">
         <TabsList>
           <TabsTrigger value="tab1">One</TabsTrigger>
