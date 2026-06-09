@@ -39,7 +39,7 @@ describe('AppContext Error Branches', () => {
 
   test('updateProfile with avatarFile calls apiUpdateMe', async () => {
     setupLoggedInState();
-    const updateSpy = vi.spyOn(endpoints, 'apiUpdateMe').mockResolvedValue({});
+    vi.spyOn(endpoints, 'apiUpdateMe').mockResolvedValue({});
     vi.spyOn(endpoints, 'apiGetMe').mockResolvedValueOnce({ id: 1, username: 'testuser', first_name: 'Test', last_name: 'User' } as any);
     
     let actions: any = null;
