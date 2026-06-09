@@ -405,7 +405,7 @@ describe('NearbyServicesMap', () => {
     map.featuresAtPixel = mocks.featureInstances
     emitMapEvent(map, 'singleclick')
 
-    let card = await screen.findByRole('dialog', { name: /servicios cercanos/i })
+    await screen.findByRole('dialog', { name: /servicios cercanos/i })
 
     rerender(
       <MemoryRouter>
@@ -416,7 +416,7 @@ describe('NearbyServicesMap', () => {
       </MemoryRouter>,
     )
 
-    card = await screen.findByRole('dialog', { name: /servicios cercanos/i })
+    let card = await screen.findByRole('dialog', { name: /servicios cercanos/i })
 
     fireEvent.focus(card)
     fireEvent.pointerEnter(card)
