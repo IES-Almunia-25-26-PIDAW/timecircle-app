@@ -456,7 +456,7 @@ test('applyCrop success updates preview using canvas and Image mocks', async () 
   HTMLCanvasElement.prototype.toBlob = function (cb: any) { cb(new Blob(['x'], { type: 'image/jpeg' })); };
 
   try {
-    const { container } = render(
+    render(
       <Router.MemoryRouter>
         <Profile />
       </Router.MemoryRouter>
