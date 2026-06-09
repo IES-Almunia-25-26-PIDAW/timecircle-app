@@ -393,7 +393,7 @@ test('dragging image file shows cropper and clicking recortar logs crop error', 
     requestLocation: vi.fn(),
   } as any);
 
-  const { container } = render(
+  render(
     <Router.MemoryRouter>
       <Profile />
     </Router.MemoryRouter>
