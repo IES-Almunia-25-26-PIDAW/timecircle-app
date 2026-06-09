@@ -31,7 +31,6 @@ test('renders desktop floating sidebar with icon collapse and right side', async
     SidebarProvider,
     Sidebar,
     SidebarRail,
-    SidebarInset,
     SidebarInput,
     SidebarHeader,
     SidebarFooter,
