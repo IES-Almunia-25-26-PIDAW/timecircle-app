@@ -95,7 +95,6 @@ describe('Messages', () => {
 
   it('handles reservation card actions: accept, cancel, negotiate', async () => {
     const { apiGetConversation } = await import('../../app/api/endpoints') as any
-    const apiClient = await import('../../app/api/client') as any
 
     const user = { id: 'me', name: 'Me' }
     const other = { id: 'other', name: 'Other', avatar: '', rating: 4.5, completedTrades: 2 }
