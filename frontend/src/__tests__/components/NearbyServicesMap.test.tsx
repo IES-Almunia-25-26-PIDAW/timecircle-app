@@ -481,7 +481,7 @@ describe('NearbyServicesMap', () => {
   })
 
   it('removes listeners and clears the map target on unmount', async () => {
-    const { container, unmount } = renderMap({ services: [service()] })
+    const { unmount } = renderMap({ services: [service()] })
 
     await waitFor(() => {
       expect(mocks.mapInstances.length).toBe(1)
