@@ -39,13 +39,19 @@ SESSION_COOKIE_SECURE = not DEBUG       # Cookie de sesión solo por HTTPS
 CSRF_COOKIE_SECURE    = not DEBUG       # Cookie CSRF solo por HTTPS
 SESSION_COOKIE_HTTPONLY = True     # JS no puede leer la cookie de sesión
 CSRF_COOKIE_HTTPONLY    = False    # El frontend necesita leer el CSRF token
+SESSION_COOKIE_SAMESITE = 'Lax'    # CSRF protection against cross-site requests
+CSRF_COOKIE_SAMESITE    = 'Lax'    # CSRF protection against cross-site requests
 
 # --- Protección adicional ---
-SECURE_SSL_REDIRECT         = not DEBUG   # Redirige HTTP → HTTPS automáticamente
-SECURE_HSTS_SECONDS         = 31536000 if not DEBUG else 0  # Fuerza HTTPS durante 1 año (HSTS)
-SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
+# Disabled SSL redirect since backend runs behind ALB which handles HTTPS at the edge
+SECURE_SSL_REDIRECT         = False   # ALB handles HTTPS termination
+SECURE_HSTS_SECONDS         = 0  # Disable HSTS for backend behind ALB
+SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+SECURE_HSTS_PRELOAD         = False
 SECURE_CONTENT_TYPE_NOSNIFF = not DEBUG   # Evita que el navegador adivine el MIME type
 X_FRAME_OPTIONS             = "DENY" # Previene clickjacking en iframes
+X_CONTENT_TYPE_OPTIONS      = "nosniff"
+REFERRER_POLICY             = "strict-origin-when-cross-origin"
 
 _raw_allowed_hosts = os.getenv('ALLOWED_HOSTS', '')
 ALLOWED_HOSTS = [host.strip() for host in _raw_allowed_hosts.split(',') if host.strip()]

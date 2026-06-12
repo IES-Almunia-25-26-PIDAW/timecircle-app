@@ -15,7 +15,7 @@ python manage.py migrate --no-input
 
 echo "DEBUG mode: $DEBUG"
 
-if [ "$DEBUG" = "True" ] || [ "$DEBUG" = "1" ]; then
+if [ "$DEBUG" = "True" ] || [ "$DEBUG" = "1" ] || [ "$DEBUG" = "true" ]; then
   echo "Seeding database with demo data..."
   python manage.py seed_categories
   python manage.py seed_demo_data

@@ -1,0 +1,193 @@
+name: Build and Deploy to AWS ECS
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+
+jobs:
+  build-and-test:
+    name: Build, Test, and Push Images
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        run: |
+          aws ecr get-login-password --region $AWS_REGION | \
+            docker login --username AWS --password-stdin $ECR_REGISTRY
+
+      - name: Build backend Docker image
+        run: |
+          docker build -t $ECR_REGISTRY/timecircle/backend:${{ github.sha }} \
+            -t $ECR_REGISTRY/timecircle/backend:latest \
+            ./backend
+
+      - name: Run backend tests
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/backend:/app \
+            $ECR_REGISTRY/timecircle/backend:${{ github.sha }} \
+            python -m pytest --cov=. --cov-report=term
+
+      - name: Build frontend Docker image
+        run: |
+          docker build -t $ECR_REGISTRY/timecircle/frontend:${{ github.sha }} \
+            -t $ECR_REGISTRY/timecircle/frontend:latest \
+            ./frontend
+
+      - name: Build nginx Docker image
+        run: |
+          docker build -t $ECR_REGISTRY/timecircle/nginx:${{ github.sha }} \
+            -t $ECR_REGISTRY/timecircle/nginx:latest \
+            ./nginx
+
+      - name: Push backend image to ECR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          docker push $ECR_REGISTRY/timecircle/backend:${{ github.sha }}
+          docker push $ECR_REGISTRY/timecircle/backend:latest
+
+      - name: Push frontend image to ECR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          docker push $ECR_REGISTRY/timecircle/frontend:${{ github.sha }}
+          docker push $ECR_REGISTRY/timecircle/frontend:latest
+
+      - name: Push nginx image to ECR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          docker push $ECR_REGISTRY/timecircle/nginx:${{ github.sha }}
+          docker push $ECR_REGISTRY/timecircle/nginx:latest
+
+      - name: Create image definitions JSON for deployment
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          cat > image-definitions.json << EOF
+          [
+            {
+              "name": "backend",
+              "imageUri": "$ECR_REGISTRY/timecircle/backend:${{ github.sha }}"
+            },
+            {
+              "name": "frontend",
+              "imageUri": "$ECR_REGISTRY/timecircle/frontend:${{ github.sha }}"
+            },
+            {
+              "name": "nginx",
+              "imageUri": "$ECR_REGISTRY/timecircle/nginx:${{ github.sha }}"
+            }
+          ]
+          EOF
+
+      - name: Upload artifacts
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v3
+        with:
+          name: image-definitions
+          path: image-definitions.json
+
+  deploy:
+    name: Deploy to ECS
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: image-definitions
+
+      - name: Update ECS Backend Service
+        run: |
+          BACKEND_IMAGE=$(jq -r '.[0].imageUri' image-definitions.json)
+          aws ecs update-service \
+            --cluster timecircle-production-cluster \
+            --service timecircle-backend-service \
+            --force-new-deployment \
+            --region $AWS_REGION || echo "Service update in progress"
+
+      - name: Update ECS Frontend Service
+        run: |
+          FRONTEND_IMAGE=$(jq -r '.[1].imageUri' image-definitions.json)
+          aws ecs update-service \
+            --cluster timecircle-production-cluster \
+            --service timecircle-frontend-service \
+            --force-new-deployment \
+            --region $AWS_REGION || echo "Service update in progress"
+
+      - name: Update ECS Nginx Service
+        run: |
+          NGINX_IMAGE=$(jq -r '.[2].imageUri' image-definitions.json)
+          aws ecs update-service \
+            --cluster timecircle-production-cluster \
+            --service timecircle-nginx-service \
+            --force-new-deployment \
+            --region $AWS_REGION || echo "Service update in progress"
+
+      - name: Wait for deployments to stabilize
+        run: |
+          for service in timecircle-backend-service timecircle-frontend-service timecircle-nginx-service; do
+            aws ecs wait services-stable \
+              --cluster timecircle-production-cluster \
+              --services $service \
+              --region $AWS_REGION || echo "Timeout waiting for $service to stabilize"
+          done
+
+      - name: Verify deployment
+        run: |
+          echo "Checking ECS services..."
+          aws ecs describe-services \
+            --cluster timecircle-production-cluster \
+            --services timecircle-backend-service timecircle-frontend-service timecircle-nginx-service \
+            --region $AWS_REGION \
+            --query 'services[*].[serviceName,desiredCount,runningCount]' \
+            --output table
+
+  notify:
+    name: Notify Deployment Status
+    needs: [build-and-test, deploy]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: Send Slack notification
+        if: always()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: |
+            TimeCircle Deployment ${{ job.status }}
+            Commit: ${{ github.sha }}
+            Author: ${{ github.actor }}
+            Ref: ${{ github.ref }}
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        continue-on-error: true

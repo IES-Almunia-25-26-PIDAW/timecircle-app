@@ -43,6 +43,9 @@ Router endpoints:
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
+from rest_framework.response import Response
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
 
 from .views import (
     LoginView, RegisterView, MeView, LogoutView,
@@ -55,6 +58,13 @@ from .views import (
     PresenceHeartbeatView, PresenceTypingView, PresenceStatusView,
     RequestPasswordResetView, ConfirmPasswordResetView,
 )
+
+# Health check endpoint
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def health_check(request):
+    """Simple health check endpoint for load balancer."""
+    return Response({'status': 'ok', 'service': 'timecircle-api'})
 
 # ── Router principal ──────────────────────────────────────
 router = DefaultRouter()
@@ -70,6 +80,9 @@ router.register(r'admin/users',   AdminUserViewSet,    basename='admin-user')
 
 # ── URL patterns ──────────────────────────────────────────
 urlpatterns = [
+    # Health check
+    path('health/', health_check, name='health-check'),
+
     # Auth
     path('auth/register/', RegisterView.as_view(),      name='auth-register'),
     path('auth/login/',    LoginView.as_view(),          name='auth-login'),
