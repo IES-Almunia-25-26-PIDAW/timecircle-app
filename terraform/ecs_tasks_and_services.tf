@@ -61,6 +61,14 @@ resource "aws_ecs_task_definition" "backend" {
         {
           name  = "CORS_ALLOWED_ORIGINS"
           value = join(",", var.cors_allowed_origins)
+        },
+        {
+          name  = "AWS_STORAGE_BUCKET_NAME"
+          value = module.s3.bucket_name
+        },
+        {
+          name  = "AWS_S3_REGION_NAME"
+          value = module.s3.bucket_region
         }
       ]
 
@@ -122,12 +130,7 @@ resource "aws_ecs_task_definition" "frontend" {
         }
       ]
 
-      environment = [
-        {
-          name  = "VITE_API_URL"
-          value = var.vite_api_url
-        }
-      ]
+      environment = []
 
       logConfiguration = {
         logDriver = "awslogs"

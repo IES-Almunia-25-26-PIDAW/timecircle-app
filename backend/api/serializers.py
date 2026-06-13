@@ -108,16 +108,13 @@ class UserSerializer(serializers.ModelSerializer):
         return obj.get_full_name() or obj.username
 
     def get_avatar(self, obj: User) -> str:
-        # Prefer uploaded image if present, fall back to stored URL
+        # Use the model method which handles S3->API endpoint conversion in production
         try:
-            if getattr(obj, 'avatar_image', None):
-                if obj.avatar_image and hasattr(obj.avatar_image, 'url'):
-                    return obj.avatar_image.url
+            request = self.context.get('request')
+            return obj.get_avatar_url(request=request)
         except Exception:
-            # Defensive fallback: if avatar storage/file metadata is unavailable
-            # or broken, keep serialization working by using the legacy avatar URL.
-            pass
-        return obj.avatar or ''
+            # Defensive fallback
+            return obj.avatar or ''
 
     def get_skills(self, obj: User) -> list[str]:
         return list(

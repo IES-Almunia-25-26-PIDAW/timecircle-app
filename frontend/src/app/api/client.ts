@@ -1,9 +1,16 @@
-const BASE_URL = import.meta.env.VITE_API_URL;
+// Get API URL from environment, with fallback for production
+const BASE_URL = import.meta.env.VITE_API_URL || 
+  (typeof globalThis !== 'undefined' ? globalThis.location.origin : '');
 
 export { BASE_URL };
 
 // Construir WebSocket URL a partir de la URL API
 export const getWsUrl = (path: string): string => {
+  if (!BASE_URL) {
+    console.error('BASE_URL is not set. VITE_API_URL environment variable is missing.');
+    throw new Error('API URL is not configured');
+  }
+  
   const proto = BASE_URL.startsWith('https') ? 'wss' : 'ws';
   const apiUrl = new URL(BASE_URL);
   const host = apiUrl.host;

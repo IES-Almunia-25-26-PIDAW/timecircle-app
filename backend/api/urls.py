@@ -58,6 +58,7 @@ from .views import (
     PresenceHeartbeatView, PresenceTypingView, PresenceStatusView,
     RequestPasswordResetView, ConfirmPasswordResetView,
 )
+from .media_views import serve_media
 
 # Health check endpoint
 @api_view(['GET'])
@@ -100,6 +101,9 @@ urlpatterns = [
 
     # Contacto (público)
     path('contact/', ContactView.as_view(), name='contact'),
+
+    # Media serving (secure)
+    path('media/<path:path>', serve_media, name='serve-media'),
 
     # Admin stats
     path('admin/stats/', AdminStatsView.as_view(), name='admin-stats'),

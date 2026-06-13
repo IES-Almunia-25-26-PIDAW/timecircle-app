@@ -136,6 +136,14 @@ module "alb" {
   alb_security_group_id   = module.security_groups.alb_security_group_id
 }
 
+# S3 Module for Media Files
+module "s3" {
+  source = "./modules/s3"
+
+  project_name = var.project_name
+  environment  = var.environment
+}
+
 # CloudWatch Logs Groups
 resource "aws_cloudwatch_log_group" "ecs_backend" {
   name              = "/ecs/${var.project_name}-backend"

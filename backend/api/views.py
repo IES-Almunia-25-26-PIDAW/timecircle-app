@@ -153,11 +153,20 @@ class MeView(generics.GenericAPIView):
 
         # If an avatar was uploaded, resize/center-crop to 512x512 (non-blocking).
         avatar_file = request.FILES.get('avatar_image')
-        if avatar_file and getattr(user, 'avatar_image', None) and hasattr(user.avatar_image, 'path'):
+        if avatar_file and getattr(user, 'avatar_image', None):
             try:
-                self._process_avatar_image(user.avatar_image.path)
-            except Exception:
+                # For S3: pass the field name; for local: pass the path
+                if hasattr(user.avatar_image, 'path'):
+                    # Local filesystem
+                    self._process_avatar_image(user.avatar_image.path)
+                else:
+                    # S3 storage
+                    self._process_avatar_image(str(user.avatar_image))
+            except Exception as e:
                 # Don't block profile update if image processing fails
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f'Avatar processing failed (non-blocking): {e}')
                 pass
 
         # If coordinates were provided, try to resolve city/country (non-blocking)
@@ -173,23 +182,47 @@ class MeView(generics.GenericAPIView):
         return Response(MeSerializer(user, context={'request': request}).data)
 
     def _process_avatar_image(self, path):
-        """Resize and center-crop an avatar image to 512x512 and save in place."""
-        img = Image.open(path)
-        img = img.convert('RGBA') if img.mode in ('RGBA', 'LA') else img.convert('RGB')
-        # center-crop to square
-        w, h = img.size
-        min_side = min(w, h)
-        left = (w - min_side) // 2
-        top = (h - min_side) // 2
-        right = left + min_side
-        bottom = top + min_side
-        img = img.crop((left, top, right, bottom))
-        img = img.resize((512, 512), Image.LANCZOS)
-        # save in place, keep format based on original
-        fmt = 'JPEG'
-        if img.mode == 'RGBA':
-            fmt = 'PNG'
-        img.save(path, format=fmt, quality=90)
+        """
+        Resize and center-crop an avatar image to 512x512.
+        
+        Note: Image processing is only done in development (local filesystem).
+        In production (S3), we skip processing since:
+        - S3 files are read-only after upload (can't modify in-place)
+        - Processing should happen at upload time via frontend or worker service
+        - This is non-critical: images work fine without resizing
+        """
+        from django.conf import settings
+        
+        # Only process local files in development
+        if settings.DEBUG:
+            try:
+                img = Image.open(path)
+                img = img.convert('RGBA') if img.mode in ('RGBA', 'LA') else img.convert('RGB')
+                
+                # Center-crop to square
+                w, h = img.size
+                min_side = min(w, h)
+                left = (w - min_side) // 2
+                top = (h - min_side) // 2
+                right = left + min_side
+                bottom = top + min_side
+                img = img.crop((left, top, right, bottom))
+                img = img.resize((512, 512), Image.LANCZOS)
+                
+                # Save in place, keep format based on original
+                fmt = 'JPEG'
+                if img.mode == 'RGBA':
+                    fmt = 'PNG'
+                img.save(path, format=fmt, quality=90)
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f'Avatar processing failed in development: {e}')
+                # Non-critical: don't fail the request
+        else:
+            # Production: S3 storage - skip processing
+            # Images should be optimized client-side before upload
+            pass
 
     def _update_location_from_coords(self, user, lat, lon):
         """Reverse-geocode coordinates and persist returned fields on the user."""

@@ -107,6 +107,36 @@ class User(AbstractUser):
         self.credits += bonus
         self.save(update_fields=['credits'])
 
+    def get_avatar_url(self, request=None):
+        """
+        Get the avatar URL for this user.
+        In production: Returns API endpoint URL for avatar_image.
+        In development: Returns the direct file URL or avatar field.
+        """
+        from django.conf import settings
+        from django.urls import reverse
+        
+        if self.avatar_image:
+            # If avatar_image exists, use it
+            if settings.DEBUG:
+                # Development: return direct URL
+                if request:
+                    return request.build_absolute_uri(self.avatar_image.url)
+                return self.avatar_image.url
+            else:
+                # Production: return API endpoint for secure S3 access
+                if request:
+                    return request.build_absolute_uri(
+                        reverse('serve-media', kwargs={'path': str(self.avatar_image)})
+                    )
+                # Fallback: construct URL manually
+                from django.urls import reverse
+                return f'/api/media/{self.avatar_image}'
+        elif self.avatar:
+            # Fallback to avatar URL field
+            return self.avatar
+        return ''
+
 class Category(models.Model):
     name        = models.CharField(max_length=50, unique=True)
     description = models.TextField(max_length=200, blank=True)
