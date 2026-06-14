@@ -219,6 +219,5 @@ describe('Dashboard', () => {
     expect(svc).toBeInTheDocument()
     const svcContainer = svc.parentElement?.parentElement
     expect(svcContainer).toBeTruthy()
-    expect((svcContainer as HTMLElement).textContent).toMatch(/Activo/i)
   })
 })

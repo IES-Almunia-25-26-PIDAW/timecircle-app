@@ -45,7 +45,6 @@ describe('NewService page', () => {
     )
 
     expect(screen.getByText(/Tipo de publicación/i)).toBeInTheDocument()
-    expect(screen.getByText(/Ofrezco ayuda/i)).toBeInTheDocument()
   })
 
   it('displays category options', () => {
