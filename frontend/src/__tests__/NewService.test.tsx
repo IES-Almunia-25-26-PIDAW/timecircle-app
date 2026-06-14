@@ -134,7 +134,7 @@ describe('NewService form', () => {
 
     // then wait for addService to be called
     await waitFor(() => expect(addService).toHaveBeenCalled());
-    expect(addService).toHaveBeenCalledWith(expect.objectContaining({ title: 'My Service', description: 'This is a service', credits: 2 }));
+    expect(addService).toHaveBeenCalledWith(expect.objectContaining({ title: 'My Service', description: 'This is a service', credits: 2, skill_ids: expect.any(Array) }));
     expect(navigate).toHaveBeenCalledWith('/services');
 
     setTimeoutSpy.mockRestore();

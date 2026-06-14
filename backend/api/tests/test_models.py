@@ -3,7 +3,7 @@ test_models.py – Tests unitarios de los modelos de TimeCircle.
 
 Cubre:
   · User          → badge, rating, campos por defecto
-  · Category / Tag / Skill / UserSkill
+  · Category / Tag
   · Service       → campos, __str__, ordenación
   · Trade         → flujo de estados, __str__
   · Transaction   → __str__, amount positivo/negativo
@@ -22,12 +22,12 @@ import types
 import pytest
 
 from api.models import (
-    User, Category, Tag, Skill, UserSkill,
+    User, Category, Tag,
     Service, Trade, Transaction,
     Conversation, Message, Review, UserPresence,
 )
 from .factories import (
-    make_user, make_category, make_tag, make_skill,
+    make_user, make_category, make_tag,
     make_service, make_trade, make_completed_trade,
     make_conversation, make_message, make_review,
 )
@@ -149,30 +149,6 @@ class TagModelTests(TestCase):
         make_tag(name="unico")
         with self.assertRaises(Exception):
             Tag.objects.create(name="unico")
-
-
-class SkillModelTests(TestCase):
-
-    def test_str(self):
-        skill = make_skill(name="Cocina")
-        self.assertEqual(str(skill), "Cocina")
-
-
-class UserSkillModelTests(TestCase):
-
-    def test_str(self):
-        user  = make_user()
-        skill = make_skill()
-        us    = UserSkill.objects.create(user=user, skill=skill)
-        self.assertIn(user.username, str(us))
-        self.assertIn(skill.name, str(us))
-
-    def test_unique_together(self):
-        user  = make_user()
-        skill = make_skill()
-        UserSkill.objects.create(user=user, skill=skill)
-        with self.assertRaises(IntegrityError):
-            UserSkill.objects.create(user=user, skill=skill)
 
 class ServiceModelTests(TestCase):
 

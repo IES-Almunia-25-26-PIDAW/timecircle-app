@@ -42,31 +42,71 @@ const apiGetPresence = async (
 };
 
 // ── Map raw API message ───────────────────────────────────
-const mapApiMsg = (m: any, convId: string): Message => ({
-  id: String(m.id),
-  conversationId: convId,
-  senderId: String(m.sender?.id ?? m.sender ?? ''),
-  content: m.content,
-  messageType: m.message_type || 'text',
-  trade: m.trade ? {
-    id: String(m.trade.id),
-    serviceId: String(m.trade.service?.id ?? m.trade.service ?? ''),
-    offererId: String(m.trade.offerer?.id ?? m.trade.offerer ?? ''),
-    requesterId: String(m.trade.requester?.id ?? m.trade.requester ?? ''),
-    status: m.trade.status,
-    scheduledDate: m.trade.scheduled_date || '',
-    creditsAmount: m.trade.credits_amount ?? 0,
-    createdAt: (m.trade.created_at || '').split('T')[0] || '',
-    completedAt: m.trade.completed_at ? (m.trade.completed_at || '').split('T')[0] : undefined,
-    notes: m.trade.notes || '',
-    lastProposedById: m.trade.last_proposed_by ? String(m.trade.last_proposed_by?.id ?? m.trade.last_proposed_by) : undefined,
-    lastProposedAt: m.trade.last_proposed_at || undefined,
-    conversationId: m.trade.conversation_id ? String(m.trade.conversation_id) : undefined,
-  } : undefined,
-  payload: m.payload || undefined,
-  timestamp: m.timestamp,
-  read: m.read ?? false,
-});
+const mapApiMsg = (m: any, convId: string): Message => {
+  const messageType = m.message_type || 'text';
+  return {
+    id: String(m.id),
+    conversationId: convId,
+    senderId: String(m.sender?.id ?? m.sender ?? ''),
+    content: m.content,
+    messageType: messageType,
+    trade: m.trade ? {
+      id: String(m.trade.id),
+      serviceId: String(m.trade.service?.id ?? m.trade.service ?? ''),
+      offererId: String(m.trade.offerer?.id ?? m.trade.offerer ?? m.trade.offerer_id ?? ''),
+      requesterId: String(m.trade.requester?.id ?? m.trade.requester ?? m.trade.requester_id ?? ''),
+      status: m.trade.status,
+      scheduledDate: m.trade.scheduled_date || m.trade.scheduledDate || '',
+      creditsAmount: m.trade.credits_amount ?? m.trade.creditsAmount ?? 0,
+      createdAt: (m.trade.created_at || m.trade.createdAt || '').split('T')[0] || '',
+      completedAt: m.trade.completed_at ? (m.trade.completed_at || '').split('T')[0] : (m.trade.completedAt ? (m.trade.completedAt || '').split('T')[0] : undefined),
+      notes: m.trade.notes || '',
+      lastProposedById: m.trade.last_proposed_by ? String(m.trade.last_proposed_by?.id ?? m.trade.last_proposed_by) : undefined,
+      lastProposedAt: m.trade.last_proposed_at || m.trade.lastProposedAt || undefined,
+      conversationId: m.trade.conversation_id ? String(m.trade.conversation_id) : m.trade.conversationId ? String(m.trade.conversationId) : undefined,
+    } : undefined,
+    payload: m.payload || undefined,
+    timestamp: m.timestamp,
+    read: m.read ?? false,
+  };
+};
+
+// ── Normalize payload to include both snake_case and camelCase ───
+/** Ensures payload has both snake_case and camelCase versions of fields
+    for compatibility with different code paths. Payload comes from WebSocket
+    in snake_case, but some handlers expect camelCase. */
+const normalizePayload = (rawPayload: any): any => {
+  if (!rawPayload) return {};
+  const p = { ...rawPayload };
+  // Ensure both versions exist for each field
+  if (p.trade_id !== undefined && p.tradeId === undefined) p.tradeId = p.trade_id;
+  if (p.tradeId !== undefined && p.trade_id === undefined) p.trade_id = p.tradeId;
+  if (p.scheduled_date !== undefined && p.scheduledDate === undefined) p.scheduledDate = p.scheduled_date;
+  if (p.scheduledDate !== undefined && p.scheduled_date === undefined) p.scheduled_date = p.scheduledDate;
+  if (p.credits_amount !== undefined && p.creditsAmount === undefined) p.creditsAmount = p.credits_amount;
+  if (p.creditsAmount !== undefined && p.credits_amount === undefined) p.credits_amount = p.creditsAmount;
+  if (p.last_proposed_by !== undefined && p.lastProposedBy === undefined) p.lastProposedBy = p.last_proposed_by;
+  if (p.lastProposedBy !== undefined && p.last_proposed_by === undefined) p.last_proposed_by = p.lastProposedBy;
+  if (p.last_proposed_at !== undefined && p.lastProposedAt === undefined) p.lastProposedAt = p.last_proposed_at;
+  if (p.lastProposedAt !== undefined && p.last_proposed_at === undefined) p.last_proposed_at = p.lastProposedAt;
+  if (p.offerer_id !== undefined && p.offererId === undefined) p.offererId = p.offerer_id;
+  if (p.offererId !== undefined && p.offerer_id === undefined) p.offerer_id = p.offererId;
+  if (p.requester_id !== undefined && p.requesterId === undefined) p.requesterId = p.requester_id;
+  if (p.requesterId !== undefined && p.requester_id === undefined) p.requester_id = p.requesterId;
+  return p;
+};
+
+// ── Extract trade ID from various object structures ───
+/** Extracts trade ID from message, payload, or trade object, checking all possible locations */
+const extractTradeId = (o: any): string => {
+  if (o?.trade?.id) return String(o.trade.id);
+  if (o?.trade_id) return String(o.trade_id);
+  if (o?.tradeId) return String(o.tradeId);
+  if (o?.payload?.trade?.id) return String(o.payload.trade.id);
+  if (o?.payload?.trade_id) return String(o.payload.trade_id);
+  if (o?.payload?.tradeId) return String(o.payload.tradeId);
+  return '';
+};
 
 // ── Presence dot ──────────────────────────────────────────
 const PresenceDot: React.FC<{ status: PresenceStatus; size?: 'sm' | 'md' }> = ({
@@ -599,16 +639,73 @@ export const Messages: React.FC = () => {
     if (!selectedConvId) return;
     if (String(msg.conversation_id) !== String(selectedConvId)) return;
 
-    const newMsg: Message = {
-      id: String(msg.id),
-      conversationId: String(msg.conversation_id),
-      senderId: String(msg.sender_id),
+    // Normalize incoming WS frame into the shape expected by mapApiMsg
+    const normalized = {
+      id: msg.id,
+      sender: msg.sender_id ?? msg.sender ?? (msg.sender?.id),
       content: msg.content,
+      message_type: msg.message_type ?? msg.messageType,
+      trade: msg.trade ?? (msg.payload?.trade),
+      payload: msg.payload ?? undefined,
       timestamp: msg.timestamp,
       read: msg.read ?? false,
     };
 
-    setMessages((prev) => (prev.some(m => m.id === newMsg.id) ? prev : [...prev, newMsg]));
+    const newMsg = mapApiMsg(normalized, String(msg.conversation_id));
+
+    setMessages((prev) => {
+      // If server id already present, ignore
+      if (prev.some(m => m.id === newMsg.id)) return prev;
+
+      // Try to find an optimistic local message to replace: same sender (me), same content, recent
+      const meId = String(currentUser?.id ?? '');
+      const replaceIdx = prev.findIndex(m => (
+        (m.id?.toString().startsWith('c-') || (m.senderId === meId && m.content === newMsg.content)) &&
+        Math.abs(new Date(m.timestamp || '').getTime() - new Date(newMsg.timestamp || '').getTime()) < 15000
+      ));
+      if (replaceIdx !== -1) {
+        const next = prev.slice();
+        next[replaceIdx] = newMsg;
+        return next;
+      }
+
+      // If there's a synthetic message created from a trade.event for the same
+      // trade, replace it with the canonical message from the server to avoid duplicates.
+      try {
+        const newTradeId = extractTradeId(newMsg);
+        
+        if (newTradeId) {
+          const synthIdx = prev.findIndex(m => {
+            const existingTradeId = extractTradeId(m);
+            const isSynthetic = String(m.id || '').startsWith('t-');
+            return existingTradeId === newTradeId && isSynthetic;
+          });
+          
+          if (synthIdx >= 0) {
+            const next = prev.slice();
+            const existingSynth = next[synthIdx];
+            
+            // Preserve trade_proposal messageType and payload data if the synthetic message had it
+            if (existingSynth.messageType === 'trade_proposal') {
+              next[synthIdx] = { 
+                ...newMsg, 
+                messageType: 'trade_proposal',
+                // Preserve payload from synthetic message if the real message doesn't have one
+                payload: newMsg.payload || existingSynth.payload
+              };
+            } else {
+              next[synthIdx] = newMsg;
+            }
+            return next;
+          }
+        }
+      } catch (e) {
+        console.error('Error matching synthetic message', e);
+      }
+
+      return [...prev, newMsg];
+    });
+
     setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
   }, [selectedConvId]);
 
@@ -721,7 +818,41 @@ export const Messages: React.FC = () => {
           const prevIds = new Set(prev.map((m) => m.id));
           const incoming = fetched.filter((m) => !prevIds.has(m.id));
           if (incoming.length === 0) return prev;
-          return [...prev, ...incoming];
+          
+          // Apply same synthetic message replacement logic as addMessage handler
+          let next = prev.slice();
+          for (const msg of incoming) {
+            const newTradeId = extractTradeId(msg);
+            
+            if (newTradeId) {
+              // Try to find and replace a synthetic message
+              const synthIdx = next.findIndex(m => {
+                const existingTradeId = extractTradeId(m);
+                const isSynthetic = String(m.id || '').startsWith('t-');
+                return existingTradeId === newTradeId && isSynthetic;
+              });
+              
+              if (synthIdx >= 0) {
+                const existingSynth = next[synthIdx];
+                
+                // Preserve trade_proposal type if synthetic had it
+                if (existingSynth.messageType === 'trade_proposal') {
+                  next[synthIdx] = {
+                    ...msg,
+                    messageType: 'trade_proposal',
+                    payload: msg.payload || existingSynth.payload
+                  };
+                } else {
+                  next[synthIdx] = msg;
+                }
+                continue; // Skip adding as new message
+              }
+            }
+            // Not a replacement, add as new message
+            next.push(msg);
+          }
+          
+          return next;
         });
       } catch {
         // Silently ignore poll errors
@@ -754,7 +885,96 @@ export const Messages: React.FC = () => {
     // Note: Polling removed - WebSocket is the only real-time source
     // If WS unavailable, initial fetch above provides baseline data
     return () => {};
-  }, [selectedConvId, fetchMessages, getWsClient]);
+  }, [selectedConvId, fetchMessages]);
+
+  // Listen for global trade events and insert a synthetic trade proposal
+  // message into the current conversation when appropriate so the UI shows
+  // the reservation card even if a direct `message` WS frame wasn't received.
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      try {
+        const payload = (ev as CustomEvent).detail || {};
+        console.debug('Messages: tc:trade:event received', { payload, selectedConvId, currentUserId: currentUser?.id, messageType: 'should_be_trade_proposal' });
+        if (!selectedConvId) return;
+
+        // If the current user is a participant in the trade, show the synthetic
+        // message in the open conversation. This is intentionally permissive
+        // because some trade.event payloads don't include a conversation id.
+        const offerer = String(payload.offerer_id ?? payload.offererId ?? payload.offerer ?? '');
+        const requester = String(payload.requester_id ?? payload.requesterId ?? payload.requester ?? '');
+        const me = String(currentUser?.id ?? '');
+        if (me !== offerer && me !== requester) return;
+
+        const tradeId = String(payload.trade_id ?? payload.tradeId ?? '');
+        if (!tradeId) return;
+
+        setMessages(prev => {
+          const makeSyntheticContent = () => {
+            const rawMsg = (payload.message ?? '').toString().trim();
+            if (rawMsg) return rawMsg;
+            const action = payload.action ?? '';
+            if (action === 'negotiated') {
+              const credits = payload.credits_amount ?? payload.creditsAmount ?? payload.credits ?? '';
+              const scheduled = payload.scheduled_date ?? payload.scheduledDate ?? '';
+              const parts: string[] = [];
+              if (credits) parts.push(`${credits} créditos`);
+              if (scheduled) {
+                const d = new Date(scheduled);
+                if (!Number.isNaN(d.getTime())) {
+                  const dateStr = d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' });
+                  const timeStr = d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+                  parts.push(`${dateStr} ${timeStr}`);
+                }
+              }
+              return parts.length ? `Propuesta actualizada — ${parts.join(' • ')}` : 'Propuesta actualizada';
+            }
+            return 'Nueva propuesta de intercambio';
+          };
+
+          const existingIdx = prev.findIndex(m => {
+            const cand = m.payload ?? m;
+            const existingId = extractTradeId(cand) || extractTradeId(m);
+            return existingId === tradeId;
+          });
+          if (existingIdx !== -1) {
+            // Update existing synthetic message with new payload/content
+            const next = prev.slice();
+            const existing = next[existingIdx];
+            const normalizedPayload = normalizePayload({ ...(payload || {}), trade: { ...(payload?.trade || {}), id: tradeId }, trade_id: payload?.trade_id ?? payload?.tradeId ?? tradeId });
+            next[existingIdx] = {
+              ...existing,
+              messageType: 'trade_proposal',
+              payload: normalizedPayload,
+              content: makeSyntheticContent(),
+              timestamp: payload.last_proposed_at ?? existing.timestamp ?? new Date().toISOString(),
+            };
+            return next;
+          }
+
+          const normalizedPayload = normalizePayload({ ...(payload || {}), trade: { ...(payload?.trade || {}), id: tradeId }, trade_id: payload?.trade_id ?? payload?.tradeId ?? tradeId });
+
+          const synth: Message = {
+            id: `t-${tradeId}-${Date.now()}`,
+            conversationId: selectedConvId,
+            senderId: String(payload.last_proposed_by ?? payload.lastProposedBy ?? ''),
+            content: makeSyntheticContent(),
+            messageType: 'trade_proposal',
+            trade: undefined,
+            payload: normalizedPayload,
+            timestamp: payload.last_proposed_at ?? new Date().toISOString(),
+            read: false,
+          };
+          return [...prev, synth];
+        });
+
+        setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+      } catch (e) {
+        console.error('Messages: failed handling tc:trade:event', e);
+      }
+    };
+    globalThis.addEventListener('tc:trade:event', handler as EventListener);
+    return () => globalThis.removeEventListener('tc:trade:event', handler as EventListener);
+  }, [selectedConvId, conversations]);
 
   // ── 5. AUTO-SCROLL ────────────────────────────────────
   useEffect(() => {
@@ -778,14 +998,39 @@ export const Messages: React.FC = () => {
     setSendPulse(true);
     setTimeout(() => setSendPulse(false), 600);
 
-    // Send message via WebSocket (primary path, no REST fallback)
+    // Optimistic UI: append a temporary message so sender sees it immediately
+    const tempId = `c-${Date.now()}`;
+    const tempMsg: Message = {
+      id: tempId,
+      conversationId: selectedConvId,
+      senderId: String(currentUser?.id ?? ''),
+      content: text,
+      timestamp: new Date().toISOString(),
+      read: true,
+    };
+    setMessages(prev => [...prev, tempMsg]);
+    setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+
+    // Send message via WebSocket (primary path). If a WS client exists but
+    // is not connected, warn and restore the text (caller can retry). If no
+    // WS client exists at all, fall back to REST send.
     const ws = getWsClient?.();
     if (ws?.isConnected?.()) {
       ws.sendMessage(selectedConvId, text);
-    } else {
-      // If WebSocket not connected, show error to user instead of silently failing
+    } else if (ws) {
+      // There is a WS client but it's currently disconnected; do not
+      // attempt REST fallback in this case — restore the text and warn.
       console.warn('WebSocket not connected - cannot send message');
-      setMessageText(text); // Restore text for retry
+      setMessageText(text);
+    } else {
+      // No WS client available: try REST send and let server populate message
+      try {
+        await apiFetch(`/api/conversations/${selectedConvId}/messages/`, { method: 'POST', body: JSON.stringify({ content: text }) });
+      } catch (err) {
+        console.warn('WebSocket not connected - cannot send message', err);
+        // restore text for retry
+        setMessageText(text);
+      }
     }
     inputRef.current?.focus();
   };
@@ -807,7 +1052,13 @@ export const Messages: React.FC = () => {
     openSnapshotIds.current = new Set();
     hasMarkedReadRef.current = null;
     setMessageText('');
+    try { globalThis.dispatchEvent(new CustomEvent('tc:activeConversation', { detail: { conversationId: convId } })); } catch (e) {}
   };
+
+  useEffect(() => {
+    try { globalThis.dispatchEvent(new CustomEvent('tc:activeConversation', { detail: { conversationId: selectedConvId } })); } catch (e) {}
+    return () => { try { globalThis.dispatchEvent(new CustomEvent('tc:activeConversation', { detail: { conversationId: null } })); } catch (e) {} };
+  }, [selectedConvId]);
 
   if (!currentUser) return null;
 

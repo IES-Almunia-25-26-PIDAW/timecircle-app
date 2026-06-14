@@ -50,12 +50,30 @@ class PresenceConsumer(AsyncWebsocketConsumer):
         self.scope['user'] = user
         self.user = user
 
+        # Add this connection to a per-user group so server can push
+        # targeted events for this user (e.g. trade updates).
+        try:
+            await self.channel_layer.group_add(f'user_{self.user.id}', self.channel_name)
+            logger.debug('WS connect: joined per-user group user_%s (channel=%s)', getattr(self.user, 'id', None), self.channel_name)
+        except Exception:
+            logger.exception('Failed to join user group')
+
         await self.accept()
 
     async def disconnect(self, close_code):
         # Leave groups
         for cid in getattr(self, 'subscribed_conversations', set()):
-            await self.channel_layer.group_discard(f'conversation_{cid}', self.channel_name)
+            try:
+                await self.channel_layer.group_discard(f'conversation_{cid}', self.channel_name)
+            except Exception:
+                pass
+        # Remove from per-user group
+        try:
+            usr = getattr(self, 'user', None)
+            if usr:
+                await self.channel_layer.group_discard(f'user_{usr.id}', self.channel_name)
+        except Exception:
+            pass
 
     # Client messages
     async def receive(self, text_data=None, bytes_data=None):
@@ -125,6 +143,7 @@ class PresenceConsumer(AsyncWebsocketConsumer):
                 sender=self.user,
                 content=content,
             )
+            # Broadcast to the conversation group
             await self.channel_layer.group_send(
                 f'conversation_{cid}',
                 {
@@ -139,6 +158,34 @@ class PresenceConsumer(AsyncWebsocketConsumer):
                     'read':          msg.read,
                 },
             )
+
+            # Also broadcast a lightweight message event to each participant's
+            # per-user group so clients not subscribed to the conversation
+            # (e.g. Dashboard) still receive notifications.
+            try:
+                for p in participants:
+                    try:
+                        logger.debug('PresenceConsumer: sending per-user message to user_%s for conv=%s msg=%s', getattr(p, 'id', None), cid, getattr(msg, 'id', None))
+                        await self.channel_layer.group_send(
+                            f'user_{p.id}',
+                            {
+                                'type': 'message.received',
+                                'id': msg.id,
+                                'conversation_id': cid,
+                                'sender_id': self.user.id,
+                                'sender_name': self.user.get_full_name() or self.user.username,
+                                'sender_avatar': getattr(self.user, 'avatar', ''),
+                                'content': msg.content,
+                                'timestamp': msg.timestamp.isoformat(),
+                                'read': msg.read,
+                            }
+                        )
+                    except Exception:
+                        # Best-effort per participant
+                        logger.exception('PresenceConsumer: failed to group_send to user_%s', getattr(p, 'id', None))
+                        pass
+            except Exception:
+                pass
         except Exception as e:
             logger.exception('Error sending message: %s', e)
 
@@ -188,6 +235,10 @@ class PresenceConsumer(AsyncWebsocketConsumer):
     # Handler for chat messages sent to groups
     async def message_received(self, event):
         # Forward message event to client
+        try:
+            logger.debug('PresenceConsumer.message_received: forwarding message id=%s to user=%s', event.get('id'), getattr(self.user, 'id', None))
+        except Exception:
+            pass
         await self.send(text_data=json.dumps({
             'type': 'message',
             'id': event.get('id'),
@@ -196,6 +247,9 @@ class PresenceConsumer(AsyncWebsocketConsumer):
             'sender_name': event.get('sender_name'),
             'sender_avatar': event.get('sender_avatar'),
             'content': event.get('content'),
+            'message_type': event.get('message_type'),
+            'trade': event.get('trade'),
+            'payload': event.get('payload'),
             'timestamp': event.get('timestamp'),
             'read': event.get('read', False),
         }))

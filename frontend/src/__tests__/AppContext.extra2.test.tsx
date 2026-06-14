@@ -21,6 +21,7 @@ describe('AppContext extra branches', () => {
     localStorage.setItem('tc_refresh', 'test-refresh');
     // avoid accidental network calls by default
     vi.spyOn(endpoints, 'apiGetCategories').mockResolvedValue({ results: [] });
+    vi.spyOn(endpoints, 'apiGetTags').mockResolvedValue({ results: [] });
     const revieweeData = { id: 9, username: 'victim', rating: '4.5' };
     vi.spyOn(endpoints, 'apiGetUsers').mockResolvedValue({ results: [revieweeData] });
     vi.spyOn(endpoints, 'apiGetTrades').mockResolvedValue({ results: [] });
@@ -59,6 +60,7 @@ describe('AppContext extra branches', () => {
     vi.spyOn(endpoints, 'apiGetMe').mockResolvedValue({ id: 2, username: 'me' } as any);
     vi.spyOn(endpoints, 'apiGetConversations').mockResolvedValue({ results: [] });
     vi.spyOn(endpoints, 'apiGetCategories').mockResolvedValue({ results: [] });
+    vi.spyOn(endpoints, 'apiGetTags').mockResolvedValue({ results: [] });
     const createdRev = { id: 77, trade: 1, reviewer: 2, reviewee: 9, rating: 5, comment: 'ok', created_at: '2023-01-01T00:00:00Z' };
     vi.spyOn(endpoints, 'apiCreateReview').mockResolvedValue(createdRev);
     const revieweeData = { id: 9, username: 'victim', rating: '4.5' };

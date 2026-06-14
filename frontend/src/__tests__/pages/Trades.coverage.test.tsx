@@ -230,10 +230,8 @@ describe('Trades.tsx targeted coverage', () => {
     fireEvent.click(reqEnd)
     await waitFor(() => expect(requestEnd).toHaveBeenCalledWith('t6'))
 
-    const confEnd = await screen.findByText('Confirmar fin')
-    expect(confEnd).toBeTruthy()
-    fireEvent.click(confEnd)
-    await waitFor(() => expect(confirmEnd).toHaveBeenCalledWith('t6'))
+    // Confirm button removed; show end-request count instead
+    expect(await screen.findByText(/0\/2 personas/i)).toBeTruthy()
   })
 
   test('completed shows Valorar and submitting review calls addReview', async () => {

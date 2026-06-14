@@ -143,7 +143,7 @@ const ReviewModal: React.FC<{
 
 const TradeCard: React.FC<{ trade: Trade }> = ({ trade }) => {
   const { currentUser, getServiceById, getUserById, updateTrade, reviews,
-    requestStart, confirmStart, requestEnd, confirmEnd, showConfirm } = useApp();
+    requestStart, confirmStart, requestEnd, showConfirm } = useApp();
   const service = getServiceById(trade.serviceId);
   const other = getUserById(trade.offererId === currentUser?.id ? trade.requesterId : trade.offererId);
   const isOfferer = trade.offererId === currentUser?.id;
@@ -289,17 +289,9 @@ const TradeCard: React.FC<{ trade: Trade }> = ({ trade }) => {
                     <CheckCircle className="w-3.5 h-3.5" />
                     Solicitar fin
                   </button>
-                  <button
-                    onClick={async () => {
-                      if (!(await showConfirm('Confirmar finalización solicitada por la otra parte?'))) return;
-                      try { await confirmEnd(trade.id); } catch (e) { console.error(e); }
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-green-600 text-white hover:bg-green-700 rounded-xl transition-colors"
-                    style={{ fontSize: '0.8rem' }}
-                  >
-                    <CheckCircle className="w-3.5 h-3.5" />
-                    Confirmar fin
-                  </button>
+                  <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-green-50 text-green-700" style={{ fontSize: '0.8rem', fontWeight: 600 }}>
+                    {`${(trade.endConfirmations?.length ?? 0)}/2 personas quieren finalizar`}
+                  </div>
                 </>
               )}
 

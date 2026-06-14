@@ -6,7 +6,6 @@ Cubre:
   · UserSerializer              → campos de lectura, computed fields
   · UserUpdateSerializer        → validación de avatar URL, nombre/apellido
   · UserRankingSerializer       → campos del ranking
-  · UserSkillSerializer         → creación de relación usuario-habilidad
   · AdminUserSerializer         → campos del panel de admin
   · AdminUserUpdateSerializer   → validación de créditos negativos
 """
@@ -14,14 +13,13 @@ Cubre:
 from django.test import TestCase, RequestFactory
 import decimal
 
-from api.models import User, Skill, UserSkill
+from api.models import User
 from api.serializers import (
     CategorySerializer,
     UserRegistrationSerializer,
     UserSerializer,
     UserUpdateSerializer,
     UserRankingSerializer,
-    UserSkillSerializer,
     AdminUserSerializer,
     AdminUserUpdateSerializer,
 )
@@ -29,7 +27,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 import io
 from PIL import Image
 from django.test import override_settings
-from .factories import make_user, make_skill, make_completed_trade, make_review
+from .factories import make_user, make_completed_trade, make_review
 
 
 class CategorySerializerTests(TestCase):
@@ -155,16 +153,6 @@ class UserSerializerTests(TestCase):
         )
         data = UserSerializer(user).data
         self.assertEqual(data["name"], "noname")
-
-    def test_skills_empty_by_default(self):
-        data = UserSerializer(self.user).data
-        self.assertEqual(data["skills"], [])
-
-    def test_skills_lists_skill_names(self):
-        skill = make_skill("Django")
-        UserSkill.objects.create(user=self.user, skill=skill)
-        data = UserSerializer(self.user).data
-        self.assertIn("Django", data["skills"])
 
     def test_is_admin_false_for_regular_user(self):
         data = UserSerializer(self.user).data
@@ -377,29 +365,6 @@ class UserRankingSerializerTests(TestCase):
         data = UserRankingSerializer(user).data
         self.assertNotIn("email", data)
         self.assertNotIn("credits", data)
-
-
-# ══════════════════════════════════════════════
-#  USER SKILL SERIALIZER
-# ══════════════════════════════════════════════
-
-class UserSkillSerializerTests(TestCase):
-
-    def test_create_user_skill(self):
-        user  = make_user()
-        skill = make_skill("Carpintería")
-        s = UserSkillSerializer(data={"skill_id": skill.id})
-        self.assertTrue(s.is_valid(), s.errors)
-        us = s.save(user=user)
-        self.assertEqual(us.skill, skill)
-
-    def test_skill_detail_exposed_on_read(self):
-        user  = make_user()
-        skill = make_skill("Pintura")
-        us    = UserSkill.objects.create(user=user, skill=skill)
-        data  = UserSkillSerializer(us).data
-        self.assertEqual(data["skill"]["name"], "Pintura")
-
 
 @override_settings(STORAGES={
     'default': {

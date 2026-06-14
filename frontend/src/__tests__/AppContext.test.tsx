@@ -11,6 +11,7 @@ vi.mock('../app/api/endpoints', () => ({
   apiUpdateMe: vi.fn(async () => ({})),
   apiGetUsers: vi.fn(async () => []),
   apiGetCategories: vi.fn(async () => []),
+  apiGetTags: vi.fn(async () => []),
   apiGetServices: vi.fn(async () => []),
   apiGetTrades: vi.fn(async () => []),
   apiGetConversations: vi.fn(async () => []),

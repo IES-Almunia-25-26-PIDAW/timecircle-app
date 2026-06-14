@@ -2,7 +2,7 @@ export function canRequestStart(trade: any) {
   if (!trade?.scheduledDate) return { allowed: true, tooSoon: false, message: '' };
   const scheduled = new Date(trade.scheduledDate);
   if (Number.isNaN(scheduled.getTime())) return { allowed: true, tooSoon: false, message: '' };
-  const earliest = new Date(scheduled.getTime() - 24 * 60 * 60 * 1000); // 1 day early
+  const earliest = new Date(scheduled.getTime() - 2 * 60 * 60 * 1000); // 2 hours early
   const latest = new Date(scheduled.getTime() + 5 * 60 * 60 * 1000); // 5 hours late
   const now = new Date();
   if (now < earliest) {

@@ -31,8 +31,7 @@ const setupAppMocks = () => {
   } as any;
   
   vi.spyOn(endpoints, 'apiGetMe').mockResolvedValue(me);
-  vi.spyOn(endpoints, 'apiGetCategories').mockResolvedValue({ results: [] });
-  vi.spyOn(endpoints, 'apiGetUsers').mockResolvedValue({ results: [{
+  vi.spyOn(endpoints, 'apiGetCategories').mockResolvedValue({ results: [] });  vi.spyOn(endpoints, 'apiGetTags').mockResolvedValue({ results: [] });  vi.spyOn(endpoints, 'apiGetUsers').mockResolvedValue({ results: [{
     id: 2,
     username: 'otheruser',
     first_name: 'Other',

@@ -12,8 +12,7 @@ class User(AbstractUser):
     Los créditos horarios se transfieren automáticamente al completar un Trade.
 
     Economía de onboarding (créditos iniciales = 0):
-      +0.5 cr  →  al crear la primera habilidad (skill)
-      +0.5 cr  →  al publicar el primer servicio
+      +1.0 cr  →  al publicar el primer servicio
       +1.0 cr  →  al completar el primer intercambio como proveedor (offerer)
     """
 
@@ -132,32 +131,6 @@ class Tag(models.Model):
 
     def __str__(self):
         return self.name
-
-class Skill(models.Model):
-    name        = models.CharField(max_length=30, unique=True)
-    description = models.TextField(max_length=200, blank=True)
-
-    class Meta:
-        db_table = 'skill'
-        verbose_name = _('Habilidad')
-        verbose_name_plural = _('Habilidades')
-
-    def __str__(self):
-        return self.name
-
-
-class UserSkill(models.Model):
-    user  = models.ForeignKey(User,  on_delete=models.CASCADE, related_name='user_skills')
-    skill = models.ForeignKey(Skill, on_delete=models.CASCADE, related_name='user_skills')
-
-    class Meta:
-        db_table = 'user_skill'
-        unique_together = ('user', 'skill')
-        verbose_name = _('Habilidad de usuario')
-        verbose_name_plural = _('Habilidades de usuarios')
-
-    def __str__(self):
-        return f'{self.user.username} → {self.skill.name}'
 
 class Service(models.Model):
     class Type(models.TextChoices):

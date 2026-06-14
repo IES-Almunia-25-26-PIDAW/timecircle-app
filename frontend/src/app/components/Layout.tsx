@@ -248,10 +248,29 @@ export const Layout: React.FC = () => {
         </header>
 
         {/* Page content */}
-        <main className="flex-1 p-4 lg:p-6 overflow-y-auto">
-          <Outlet />
-        </main>
+          <main className="flex-1 p-4 lg:p-6 overflow-y-auto">
+            <OpenConversationListener />
+            <Outlet />
+          </main>
       </div>
     </div>
   );
 };
+
+  const OpenConversationListener: React.FC = () => {
+    const navigate = useNavigate();
+    React.useEffect(() => {
+      const handler = (e: any) => {
+        const convId = e?.detail?.conversationId;
+        if (!convId) return;
+        try {
+          navigate(`/messages?conv=${convId}`);
+        } catch (err) {
+          console.error('Failed to navigate to conversation from toast', err);
+        }
+      };
+      globalThis.addEventListener('tc:openConversation', handler as EventListener);
+      return () => globalThis.removeEventListener('tc:openConversation', handler as EventListener);
+    }, [navigate]);
+    return null;
+  };

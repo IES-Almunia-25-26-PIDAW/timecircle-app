@@ -48,6 +48,7 @@ export const router = createBrowserRouter([
       { path: 'dashboard',    Component: Dashboard },
       { path: 'services',     Component: Services },
       { path: 'services/new', Component: NewService },
+      { path: 'services/:id/edit', Component: NewService },
       { path: 'services/:id', Component: ServiceDetail },
       { path: 'calendar',     Component: Calendar },
       { path: 'trades',       Component: Trades },

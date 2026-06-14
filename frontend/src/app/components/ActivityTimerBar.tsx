@@ -13,7 +13,7 @@ function formatRemaining(ms: number) {
 
 const ActivityTimerBar: React.FC = () => {
   const app = useApp();
-  const { trades, currentUser, requestEnd, confirmEnd, requestStart, confirmStart } = app;
+  const { trades, currentUser, requestEnd, requestStart, confirmStart, showConfirm } = app;
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -52,10 +52,6 @@ const ActivityTimerBar: React.FC = () => {
     await requestEnd(active.id).catch((e) => { console.error('requestEnd failed', e); });
   };
 
-  const handleConfirmEnd = async () => {
-    await confirmEnd(active.id).catch((e) => { console.error('confirmEnd failed', e); });
-  };
-
   return (
     <div className="fixed bottom-4 left-4 right-4 z-50 flex justify-center">
       <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-md flex items-center gap-4 max-w-3xl w-full">
@@ -69,17 +65,69 @@ const ActivityTimerBar: React.FC = () => {
         </div>
         <div className="flex items-center gap-2">
           {active.status === 'in_progress' ? (
-            // allow requesting/confirming end
+            // allow requesting end and show how many participants requested end
             <>
               <button onClick={handleRequestEnd} className="px-3 py-1 bg-yellow-500 text-white rounded">Solicitar fin</button>
-              <button onClick={handleConfirmEnd} className="px-3 py-1 bg-green-600 text-white rounded">Confirmar fin</button>
+              <div className="px-3 py-1 bg-green-50 text-green-700 rounded flex items-center justify-center" style={{ minWidth: 140, fontWeight: 600 }}>
+                {`${(active.endConfirmations?.length ?? 0)}/2 quieren finalizar`}
+              </div>
             </>
           ) : (
-            // accepted + startedAt -> offer to confirm start if you are the other
-            <>
-              <button onClick={() => { requestStart(active.id).catch(()=>{}); }} className="px-3 py-1 bg-indigo-600 text-white rounded">Solicitar inicio</button>
-              <button onClick={() => { confirmStart(active.id).catch(()=>{}); }} className="px-3 py-1 bg-green-600 text-white rounded">Confirmar inicio</button>
-            </>
+            // accepted: show proper actions depending on whether a start was requested
+            (() => {
+              const startedCount = active.startedById ? 1 : 0;
+              const totalParticipants = 2;
+              if (!active.startedAt) {
+                return (
+                  <>
+                    <button
+                      onClick={async () => {
+                        try {
+                          if (!(await showConfirm('Solicitar inicio de la actividad?'))) return;
+                          await requestStart(active.id);
+                        } catch (e) { console.error('requestStart failed', e); }
+                      }}
+                      className="px-3 py-1 bg-indigo-600 text-white rounded"
+                    >
+                      Solicitar inicio
+                    </button>
+                    <div className="px-3 py-1 bg-green-50 text-green-700 rounded flex items-center justify-center" style={{ minWidth: 140, fontWeight: 600 }}>
+                      {`${startedCount}/${totalParticipants} quieren iniciar`}
+                    </div>
+                  </>
+                );
+              }
+              // start already requested
+              if (active.startedById === currentUser?.id) {
+                return (
+                  <>
+                    <button className="px-3 py-1 bg-purple-100 text-purple-400 rounded cursor-default" disabled>Inicio solicitado</button>
+                    <div className="px-3 py-1 bg-green-50 text-green-700 rounded flex items-center justify-center" style={{ minWidth: 140, fontWeight: 600 }}>
+                      {`${startedCount}/${totalParticipants} quieren iniciar`}
+                    </div>
+                  </>
+                );
+              }
+              // other participant requested -> allow confirming
+              return (
+                <>
+                  <button
+                    onClick={async () => {
+                      try {
+                        if (!(await showConfirm('Confirmar inicio solicitado por la otra parte?'))) return;
+                        await confirmStart(active.id);
+                      } catch (e) { console.error('confirmStart failed', e); }
+                    }}
+                    className="px-3 py-1 border border-teal-600 text-teal-600 rounded"
+                  >
+                    Confirmar inicio
+                  </button>
+                  <div className="px-3 py-1 bg-green-50 text-green-700 rounded flex items-center justify-center" style={{ minWidth: 140, fontWeight: 600 }}>
+                    {`${startedCount}/${totalParticipants} quieren iniciar`}
+                  </div>
+                </>
+              );
+            })()
           )}
         </div>
       </div>

@@ -7,7 +7,7 @@ from django.utils import timezone
 from datetime import timedelta
 
 from api.models import (
-    User, Category, Tag, Skill, UserSkill,
+    User, Category, Tag,
     Service, Trade, Transaction,
     Conversation, Message, Review,
 )
@@ -47,14 +47,6 @@ def make_category(name="Tecnología", description="Servicios tecnológicos", ico
 def make_tag(name="python") -> Tag:
     tag, _ = Tag.objects.get_or_create(name=name)
     return tag
-
-
-def make_skill(name="Programación", description="Desarrollo de software") -> Skill:
-    skill, _ = Skill.objects.get_or_create(
-        name=name,
-        defaults={"description": description},
-    )
-    return skill
 
 def make_service(
     user: User,

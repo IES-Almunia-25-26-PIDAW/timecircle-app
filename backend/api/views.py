@@ -17,6 +17,7 @@ from drf_spectacular.utils import (
 from drf_spectacular.types import OpenApiTypes
 
 from django.db.models import Q, Avg, Sum, Count
+from django.db import transaction, IntegrityError
 from django.utils import timezone
 from datetime import timedelta
 from channels.layers import get_channel_layer
@@ -30,17 +31,17 @@ from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 
 from .models import (
-    User, Category, Tag, Skill, Service, Trade, Transaction,
+    User, Category, Tag, Service, Trade, Transaction,
     Conversation, Message, Review, ContactMessage
 )
 from .serializers import (
     UserRegistrationSerializer, UserSerializer, UserUpdateSerializer, UserRankingSerializer,
     MeSerializer,
-    UserSkillSerializer,
-    CategorySerializer, TagSerializer, SkillSerializer,
+    CategorySerializer, TagSerializer,
     ServiceSerializer,
     TradeSerializer, TradeCreateSerializer, TradeStatusUpdateSerializer,
     TradeNegotiationSerializer, get_or_create_trade_conversation, create_trade_message,
+    build_trade_message_payload,
     TransactionSerializer,
     ConversationSerializer, MessageSerializer, MessageCreateSerializer,
     ReviewSerializer, ReviewCreateSerializer,
@@ -403,7 +404,6 @@ class UserViewSet(viewsets.ModelViewSet):
     filter_backends    = [filters.SearchFilter, filters.OrderingFilter]
     search_fields      = ['first_name', 'last_name', 'username', 'email', 'location']
     ordering_fields    = ['rating', 'completed_trades', 'date_joined', 'credits']
-    # Allow POST here so custom actions (e.g. POST /api/users/skills/) can accept POST.
     http_method_names  = ['get', 'post', 'put', 'patch', 'head', 'options']
 
     def get_serializer_class(self):
@@ -447,44 +447,7 @@ class UserViewSet(viewsets.ModelViewSet):
         user    = self.get_object()
         reviews = Review.objects.filter(reviewee=user).select_related('reviewer', 'trade')
         return Response(ReviewSerializer(reviews, many=True, context={'request': request}).data)
-
-    @extend_schema(
-        tags=['Users'],
-        summary='Habilidades del usuario autenticado',
-        description=(
-            'GET: devuelve las habilidades propias.\n\n'
-            'POST: añade una habilidad. Si es la **primera** habilidad del usuario, '
-            'se otorga automáticamente un **bono de +0,5 créditos de onboarding**.'
-        ),
-        responses={200: UserSkillSerializer(many=True)},
-    )
-    @action(detail=False, methods=['get', 'post'], url_path='skills')
-    def skills(self, request):
-        if request.method == 'GET':
-            qs = request.user.user_skills.select_related('skill')
-            return Response(UserSkillSerializer(qs, many=True).data)
-
-        # POST — crear habilidad
-        serializer = UserSkillSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        serializer.save(user=request.user)
-
-        # ── Bono de onboarding: primera habilidad (+0,5 cr) ──────────────────
-        if request.user.user_skills.count() == 1:
-            request.user.refresh_from_db(fields=['credits'])
-            request.user.credits += decimal.Decimal('0.5')
-            request.user.save(update_fields=['credits'])
-
-            Transaction.objects.create(
-                user=request.user,
-                trade=None,
-                amount=decimal.Decimal('0.5'),
-                transaction_type=Transaction.Type.BONUS,
-                description='Bono de onboarding: primera habilidad añadida',
-            )
-
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-
+    
     @extend_schema(
         tags=['Users'],
         summary='Historial de transacciones del usuario autenticado',
@@ -565,25 +528,38 @@ class TagViewSet(viewsets.ReadOnlyModelViewSet):
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
 
+    @action(detail=False, methods=['post'])
+    def bulk_create(self, request):
+        """Create missing tags in bulk and return the tags (id/name).
 
-@extend_schema(tags=['Skills'])
-class SkillViewSet(viewsets.ModelViewSet):
-    queryset           = Skill.objects.all()
-    serializer_class   = SkillSerializer
-    permission_classes = [IsAuthenticated]
+        Expects JSON: { "names": ["tag1", "tag2"] }
+        Returns a JSON array of created/found tags.
+        """
+        names = request.data.get('names', [])
+        if not isinstance(names, list):
+            return Response({'detail': 'names must be a list'}, status=status.HTTP_400_BAD_REQUEST)
 
-    @extend_schema(summary='Listar habilidades')
-    def list(self, request, *args, **kwargs):
-        return super().list(request, *args, **kwargs)
+        created_tags = []
+        with transaction.atomic():
+            for raw in names:
+                name = (str(raw) or '').strip()
+                if not name:
+                    continue
+                # Try to find existing tag case-insensitively
+                tag = Tag.objects.filter(name__iexact=name).first()
+                if tag:
+                    created_tags.append(tag)
+                    continue
+                try:
+                    tag = Tag.objects.create(name=name)
+                except IntegrityError:
+                    # Race: another request created it concurrently
+                    tag = Tag.objects.filter(name__iexact=name).first()
+                if tag:
+                    created_tags.append(tag)
 
-    @extend_schema(summary='Crear habilidad (Admin)')
-    def create(self, request, *args, **kwargs):
-        if not request.user.is_staff:
-            return Response(
-                {'detail': 'Solo los administradores pueden crear habilidades.'},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        return super().create(request, *args, **kwargs)
+        serializer = TagSerializer(created_tags, many=True, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 @extend_schema_view(
     list=extend_schema(
@@ -978,6 +954,26 @@ class TradeViewSet(viewsets.ModelViewSet):
         except Exception as exc:
             # Notification failures are non-blocking for status updates.
             print(f"Trade notification error (cancelled): {exc}")
+        # Broadcast a lightweight trade event to both participants so their clients
+        # can refresh state in real-time (e.g. accepted -> other user sees update).
+        try:
+            payload = build_trade_message_payload(trade, 'status_updated', '')
+            channel_layer = get_channel_layer()
+            participants = {trade.offerer_id, trade.requester_id}
+            for uid in participants:
+                try:
+                    async_to_sync(channel_layer.group_send)(
+                        f'user_{uid}',
+                        {
+                            'type': 'trade_event',
+                            'payload': payload,
+                        }
+                    )
+                except Exception:
+                    # Do not block the API on notification failures
+                    logger.exception('Failed to send trade_event to user %s', uid)
+        except Exception:
+            logger.exception('Failed to build/broadcast trade_event for trade_id=%s', getattr(trade, 'id', None))
         return Response(TradeSerializer(trade, context={'request': request}).data)
 
     @extend_schema(
@@ -1231,6 +1227,54 @@ class ConversationViewSet(viewsets.ModelViewSet):
             content=serializer.validated_data['content'],
         )
         conversation.save()
+
+        # Broadcast to participants' per-user groups so clients outside the
+        # conversation page (e.g. Dashboard) receive a lightweight notification
+        try:
+            participants_ids = list(conversation.participants.values_list('id', flat=True))
+            for pid in participants_ids:
+                try:
+                    logger.debug('REST send_message: sending message.id=%s to user_%s (conv=%s)', message.id, pid, conversation.id)
+                    
+                    # Include trade data if this is a trade proposal message
+                    trade_data = None
+                    if message.message_type == Message.Type.TRADE_PROPOSAL and message.trade:
+                        trade_data = {
+                            'id': message.trade.id,
+                            'status': message.trade.status,
+                            'offerer_id': message.trade.offerer_id,
+                            'requester_id': message.trade.requester_id,
+                            'scheduled_date': message.trade.scheduled_date.isoformat() if message.trade.scheduled_date else None,
+                            'credits_amount': message.trade.credits_amount,
+                            'last_proposed_by': message.trade.last_proposed_by_id,
+                            'last_proposed_at': message.trade.last_proposed_at.isoformat() if message.trade.last_proposed_at else None,
+                            'notes': message.trade.notes,
+                        }
+                    
+                    async_to_sync(get_channel_layer().group_send)(
+                        f'user_{pid}',
+                        {
+                            'type': 'message.received',
+                            'id': message.id,
+                            'conversation_id': conversation.id,
+                            'sender_id': request.user.id,
+                            'sender_name': request.user.get_full_name() or request.user.username,
+                            'sender_avatar': getattr(request.user, 'avatar', '') or '',
+                            'content': message.content,
+                            'message_type': message.message_type,
+                            'trade': trade_data,
+                            'payload': message.payload,
+                            'timestamp': message.timestamp.isoformat(),
+                            'read': message.read,
+                        }
+                    )
+                except Exception:
+                    # best-effort per participant
+                    logger.exception('REST send_message: failed to send to user_%s', pid)
+                    pass
+        except Exception:
+            logger.exception('REST send_message: failed broadcasting per-user notifications for conv=%s', conversation.id)
+            pass
 
         return Response(
             MessageSerializer(message, context={'request': request}).data,

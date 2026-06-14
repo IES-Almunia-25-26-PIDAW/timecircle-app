@@ -18,6 +18,7 @@ const setupLoggedInState = () => {
   const me = { id: 1, username: 'testuser', first_name: 'Test', last_name: 'User', credits: 100 } as any;
   vi.spyOn(endpoints, 'apiGetMe').mockResolvedValue(me);
   vi.spyOn(endpoints, 'apiGetCategories').mockResolvedValue({ results: [] });
+  vi.spyOn(endpoints, 'apiGetTags').mockResolvedValue({ results: [] });
   vi.spyOn(endpoints, 'apiGetUsers').mockResolvedValue({ results: [] });
   vi.spyOn(endpoints, 'apiGetTrades').mockResolvedValue({ results: [] });
   vi.spyOn(endpoints, 'apiGetConversations').mockResolvedValue({ results: [] });

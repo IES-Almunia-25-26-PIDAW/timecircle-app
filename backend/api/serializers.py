@@ -9,7 +9,7 @@ from django.utils import timezone
 from datetime import timedelta
 
 from .models import (
-    User, Category, Tag, Skill, UserSkill, Service, Trade,
+    User, Category, Tag, Service, Trade,
     Transaction, Conversation, Message, Review, ContactMessage, PasswordResetCode
 )
 
@@ -17,13 +17,8 @@ NOT_PARTICIPANT_ERROR = 'No eres participante de este intercambio.'
 logger = logging.getLogger(__name__)
 
 # ══════════════════════════════════════════════════════════
-#  HABILIDADES  /  TAGS  /  CATEGORÍAS
+#  TAGS  /  CATEGORÍAS
 # ══════════════════════════════════════════════════════════
-
-class SkillSerializer(serializers.ModelSerializer):
-    class Meta:
-        model  = Skill
-        fields = ['id', 'name', 'description']
 
 
 class TagSerializer(serializers.ModelSerializer):
@@ -82,7 +77,6 @@ class UserSerializer(serializers.ModelSerializer):
 
     name         = serializers.SerializerMethodField()
     avatar       = serializers.SerializerMethodField()
-    skills       = serializers.SerializerMethodField()
     member_since = serializers.DateTimeField(source='date_joined', read_only=True)
     is_admin     = serializers.BooleanField(source='is_staff', read_only=True)
 
@@ -95,7 +89,7 @@ class UserSerializer(serializers.ModelSerializer):
             # exact address fields: may be omitted from public responses depending on user preference
             'street_address', 'postal_code', 'share_exact_location',
             'credits', 'rating', 'total_reviews',
-            'member_since', 'skills', 'badge',
+            'member_since', 'badge',
             'completed_trades', 'is_admin',
             'hours_given', 'hours_received',
         ]
@@ -118,11 +112,6 @@ class UserSerializer(serializers.ModelSerializer):
             # or broken, keep serialization working by using the legacy avatar URL.
             pass
         return obj.avatar or ''
-
-    def get_skills(self, obj: User) -> list[str]:
-        return list(
-            obj.user_skills.select_related('skill').values_list('skill__name', flat=True)
-        )
 
     def to_representation(self, instance: User) -> dict:
         """Hide exact address fields from public responses unless the requester
@@ -251,7 +240,6 @@ class MeSerializer(serializers.ModelSerializer):
     name = serializers.SerializerMethodField()
     avatar = serializers.SerializerMethodField()
     member_since = serializers.DateTimeField(source='date_joined', read_only=True)
-    skills = serializers.SerializerMethodField()
     is_admin = serializers.BooleanField(source='is_staff', read_only=True)
 
     class Meta:
@@ -264,7 +252,7 @@ class MeSerializer(serializers.ModelSerializer):
             'search_radius_km', 'search_my_city_only',
             'max_trade_distance_km', 'trade_my_city_only',
             'credits', 'rating', 'total_reviews',
-            'member_since', 'skills', 'badge',
+            'member_since', 'badge',
             'completed_trades', 'is_admin',
             'hours_given', 'hours_received',
         ]
@@ -272,9 +260,6 @@ class MeSerializer(serializers.ModelSerializer):
 
     def get_name(self, obj: User) -> str:
         return obj.get_full_name() or obj.username
-
-    def get_skills(self, obj: User) -> list[str]:
-        return list(obj.user_skills.select_related('skill').values_list('skill__name', flat=True))
 
     def get_avatar(self, obj: User) -> str:
         try:
@@ -300,17 +285,6 @@ class UserRankingSerializer(serializers.ModelSerializer):
 
     def get_name(self, obj: User) -> str:
         return obj.get_full_name() or obj.username
-
-
-class UserSkillSerializer(serializers.ModelSerializer):
-    skill    = SkillSerializer(read_only=True)
-    skill_id = serializers.PrimaryKeyRelatedField(
-        queryset=Skill.objects.all(), source='skill', write_only=True
-    )
-
-    class Meta:
-        model  = UserSkill
-        fields = ['id', 'skill', 'skill_id']
 
 class ServiceSerializer(serializers.ModelSerializer):
     user        = UserSerializer(read_only=True)
@@ -502,6 +476,47 @@ def create_trade_message(
         from channels.layers import get_channel_layer
         from asgiref.sync import async_to_sync
         channel_layer = get_channel_layer()
+
+        # Include trade data for trade proposal or status updates
+        trade_data = None
+        if trade:
+            trade_data = {
+                'id': trade.id,
+                'service': {
+                    'id': trade.service.id,
+                    'title': trade.service.title,
+                    'type': trade.service.type,
+                    'duration': trade.service.duration,
+                    'credits': trade.service.credits,
+                } if getattr(trade, 'service', None) else None,
+                'offerer_id': trade.offerer_id,
+                'offerer': {
+                    'id': trade.offerer.id,
+                    'username': trade.offerer.username,
+                    'first_name': trade.offerer.first_name,
+                    'last_name': trade.offerer.last_name,
+                    'avatar': getattr(trade.offerer, 'avatar', '') or '',
+                } if getattr(trade, 'offerer', None) else None,
+                'requester_id': trade.requester_id,
+                'requester': {
+                    'id': trade.requester.id,
+                    'username': trade.requester.username,
+                    'first_name': trade.requester.first_name,
+                    'last_name': trade.requester.last_name,
+                    'avatar': getattr(trade.requester, 'avatar', '') or '',
+                } if getattr(trade, 'requester', None) else None,
+                'status': trade.status,
+                'scheduled_date': trade.scheduled_date.isoformat() if trade.scheduled_date else None,
+                'credits_amount': trade.credits_amount,
+                'notes': trade.notes,
+                'last_proposed_by': trade.last_proposed_by_id,
+                'last_proposed_at': trade.last_proposed_at.isoformat() if trade.last_proposed_at else None,
+                'conversation_id': conversation.id,
+                'created_at': trade.created_at.isoformat() if getattr(trade, 'created_at', None) else None,
+                'completed_at': trade.completed_at.isoformat() if getattr(trade, 'completed_at', None) else None,
+            }
+
+        # Send the full message to the conversation group first
         async_to_sync(channel_layer.group_send)(
             f'conversation_{conversation.id}',
             {
@@ -512,10 +527,66 @@ def create_trade_message(
                 'sender_name': sender.get_full_name() or sender.username,
                 'sender_avatar': getattr(sender, 'avatar', '') or '',
                 'content': msg.content,
+                'message_type': msg.message_type,
+                'trade': trade_data,
+                'payload': msg.payload,
                 'timestamp': msg.timestamp.isoformat(),
                 'read': msg.read,
             }
         )
+
+        # Also send the same message to each participant's per-user group so
+        # clients that are not subscribed to the conversation (e.g. Dashboard)
+        # still receive a chat notification without needing a full page reload.
+        try:
+            participants = {trade.offerer_id, trade.requester_id}
+            for uid in participants:
+                try:
+                    async_to_sync(channel_layer.group_send)(
+                        f'user_{uid}',
+                        {
+                            'type': 'message.received',
+                            'id': msg.id,
+                            'conversation_id': conversation.id,
+                            'sender_id': sender.id,
+                            'sender_name': sender.get_full_name() or sender.username,
+                            'sender_avatar': getattr(sender, 'avatar', '') or '',
+                            'content': msg.content,
+                            'message_type': msg.message_type,
+                            'trade': trade_data,
+                            'payload': msg.payload,
+                            'timestamp': msg.timestamp.isoformat(),
+                            'read': msg.read,
+                        }
+                    )
+                except Exception:
+                    # Best-effort: do not block message creation
+                    pass
+        except Exception:
+            # Ignore per-user message broadcast failures
+            pass
+
+        # Also send a lightweight trade_event to each participant so their
+        # presence connections can react (update UI) without requiring a full
+        # page refresh. Include a compact payload built from the trade.
+        try:
+            payload = build_trade_message_payload(trade, action, message)
+            participants = {trade.offerer_id, trade.requester_id}
+            for uid in participants:
+                try:
+                    async_to_sync(channel_layer.group_send)(
+                        f'user_{uid}',
+                        {
+                            'type': 'trade_event',
+                            'payload': payload,
+                        }
+                    )
+                except Exception:
+                    # Best-effort: do not block message creation
+                    pass
+        except Exception:
+            # Ignore trade event broadcasting failures
+            pass
     except Exception:
         # Do not block message creation if broadcasting fails
         pass

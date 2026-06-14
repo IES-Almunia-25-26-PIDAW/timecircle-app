@@ -12,8 +12,10 @@ import {
   apiLogin, apiLogout, apiRegister, apiGetMe, apiUpdateMe,
   apiGetUsers, apiGetUser,
   apiGetCategories,
+  apiGetTags, apiCreateTags,
   apiGetServices, apiCreateService, apiUpdateService, apiDeleteService,
   apiGetTrades, apiCreateTrade, apiUpdateTradeStatus, apiNegotiateTrade,
+  apiGetTrade,
   apiGetConversations, apiGetConversation, apiCreateConversation,
   apiSendMessage, apiMarkConversationRead,
   apiRequestTradeStart, apiConfirmTradeStart, apiRequestTradeEnd, apiConfirmTradeEnd,
@@ -103,7 +105,7 @@ const mapTrade = (t: any): Trade => ({
 const mapMessage = (m: any, convId: string): Message => ({
   id: String(m.id),
   conversationId: convId,
-  senderId: String(m.sender?.id ?? m.sender ?? ''),
+  senderId: String(m.sender?.id ?? m.sender ?? m.sender_id ?? m.senderId ?? ''),
   content: m.content,
   messageType: m.message_type || 'text',
   trade: m.trade ? mapTrade(m.trade) : undefined,
@@ -229,10 +231,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [services, setServices] = useState<Service[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const messagesRef = useRef<Message[]>([]);
+  const messagesSeenRef = useRef<Set<string>>(new Set());
+  const currentUserRef = useRef<User | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const usersRef = useRef<User[]>([]);
+  const activeConvRef = useRef<string | null>(null);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
   const [apiCategoryMap, setApiCategoryMap] = useState<Record<string, number>>({});
+  const [tags, setTags] = useState<Array<{id: number; name: string}>>([]);
   const loadedConvs = useRef<Set<string>>(new Set());
   const wsRef = useRef<any>(null);
   // Prevent concurrent/duplicate network calls
@@ -276,12 +284,173 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     if (msg?.type === 'trade.event') {
       const payload = msg.payload || {};
-      // Refresh trades in background and show lightweight notification
-      fetchTrades().catch((e) => console.error('fetchTrades failed in WS handler', e));
+      console.debug('WS trade.event received', payload);
+      // Try to fetch only the updated trade when possible to avoid full reloads.
+      (async () => {
+        try {
+          if (payload.trade_id) {
+            try {
+              const t = await apiGetTrade(payload.trade_id);
+              console.debug('apiGetTrade response', t);
+              if (t) {
+                const mapped = mapTrade(t);
+                setTrades(prev => {
+                  const exists = prev.some(tr => tr.id === mapped.id);
+                  const next = exists ? prev.map(tr => (tr.id === mapped.id ? mapped : tr)) : [mapped, ...prev];
+                  console.debug('Merged trade into trades list', { tradeId: mapped.id, existed: exists, prevLen: prev.length, nextLen: next.length });
+                  return next;
+                });
+              } else {
+                // fallback: full refresh
+                console.debug('apiGetTrade returned empty, falling back to fetchTrades');
+                await fetchTrades();
+              }
+            } catch (e) {
+              console.error('apiGetTrade failed, falling back to fetchTrades', e);
+              await fetchTrades();
+            }
+          } else {
+            console.debug('No trade_id in payload, doing full fetch');
+            await fetchTrades();
+          }
+        } catch (e) {
+          console.error('WS trade event handling failed', e);
+        }
+      })();
+
       try {
-        if (payload.action) globalThis.dispatchEvent(new CustomEvent('tc:trade:event', { detail: payload }));
+        if (payload.action) {
+          const buildTradeMessage = (p: any) => {
+            try {
+              const raw = (p?.message ?? '').toString().trim();
+              if (raw) return raw;
+              const action = p?.action ?? '';
+              if (action === 'negotiated') {
+                const credits = p?.credits_amount ?? p?.creditsAmount ?? p?.credits ?? '';
+                const scheduled = p?.scheduled_date ?? p?.scheduledDate ?? '';
+                const parts: string[] = [];
+                if (credits) parts.push(`${credits} créditos`);
+                if (scheduled) {
+                  const d = new Date(scheduled);
+                  if (!Number.isNaN(d.getTime())) {
+                    const dateStr = d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' });
+                    const timeStr = d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+                    parts.push(`${dateStr} ${timeStr}`);
+                  }
+                }
+                return parts.length ? `Propuesta actualizada — ${parts.join(' • ')}` : 'Propuesta actualizada';
+              }
+              if (action === 'accepted') return 'Intercambio aceptado';
+              if (action === 'cancelled' || action === 'cancel') return 'Intercambio cancelado';
+            } catch (e) {
+              // ignore
+            }
+            return 'Nueva propuesta de intercambio';
+          };
+
+          const enriched = { ...(payload || {}), message: buildTradeMessage(payload) };
+          globalThis.dispatchEvent(new CustomEvent('tc:trade:event', { detail: enriched }));
+        }
       } catch (e) {
         console.error('Failed to dispatch trade event', e);
+      }
+    }
+
+    // Handle incoming chat messages forwarded from the server
+    if (msg?.type === 'message') {
+      const payload = msg || {};
+      console.debug('WS message received', payload);
+      try {
+        const convId = String(payload.conversation_id ?? payload.conversationId ?? payload.conversation ?? '');
+        if (!convId) return;
+        const msgId = String(payload.id ?? payload.message_id ?? payload._id ?? '');
+
+        // If we've already processed this message (sent locally or processed earlier), skip toast and avoid double-processing
+        if (msgId && messagesSeenRef.current.has(msgId)) {
+          console.debug('WS message ignored (already seen)', msgId);
+          // Ensure message exists in state (idempotent)
+          const mapped = mapMessage(payload, convId);
+          setMessages(prev => mergeConversationMessages(prev, [mapped]));
+          return;
+        }
+
+        if (msgId) messagesSeenRef.current.add(msgId);
+
+        const mapped = mapMessage(payload, convId);
+
+        // Merge message into messages state (avoid duplicates)
+        setMessages(prev => mergeConversationMessages(prev, [mapped]));
+
+        // Update or add conversation entry and unread counters
+        setConversations(prev => {
+          const exists = prev.some(c => c.id === convId);
+          const isFromMe = currentUserRef.current ? mapped.senderId === currentUserRef.current.id : false;
+          if (exists) {
+            return prev.map(c => c.id === convId
+              ? {
+                ...c,
+                lastMessage: mapped.content,
+                lastTimestamp: mapped.timestamp,
+                unreadCount: c.unreadCount + (!isFromMe && !loadedConvs.current.has(convId) ? 1 : 0),
+              }
+              : c
+            );
+          }
+          // Minimal placeholder for a conversation we don't yet have loaded
+          const participants = [mapped.senderId, currentUserRef.current ? currentUserRef.current.id : mapped.senderId].filter((v, i, a) => a.indexOf(v) === i);
+          const newConv = {
+            id: convId,
+            participants,
+            lastMessage: mapped.content,
+            lastTimestamp: mapped.timestamp,
+            unreadCount: (!isFromMe && !loadedConvs.current.has(convId)) ? 1 : 0,
+          } as any;
+          return [newConv, ...prev];
+        });
+
+        // Show a brief toast so user notices incoming messages on other pages
+        try {
+          const senderName = (payload.sender_name || payload.senderName || 'Nuevo mensaje');
+          // Do not show toast if user is the sender or is currently viewing the same conversation
+          const isFromMe = currentUserRef.current ? mapped.senderId === currentUserRef.current.id : false;
+          let showToastFlag = true;
+          if (isFromMe) showToastFlag = false;
+          try {
+            const activeConv = activeConvRef.current;
+            if (activeConv && String(activeConv) === convId) showToastFlag = false;
+          } catch (e) {
+            // ignore
+          }
+
+          // Resolve avatar URL: prefer explicit payload, then local users cache
+          let rawAvatar = (payload.sender_avatar || payload.senderAvatar || payload.sender_avatar_url || payload.senderAvatarUrl || '');
+          let finalAvatar = rawAvatar || '';
+          try {
+            if (!finalAvatar) {
+              const u = usersRef.current?.find(usu => String(usu.id) === String(mapped.senderId));
+              if (u && u.avatar) finalAvatar = u.avatar;
+            }
+            // If avatar is not absolute, prefix with BASE_URL
+            if (finalAvatar && !/^https?:\/\//i.test(finalAvatar)) {
+              finalAvatar = `${BASE_URL.replace(/\/$/, '')}/${finalAvatar.replace(/^\/+/, '')}`;
+            }
+          } catch (e) {
+            // ignore avatar resolution errors
+          }
+
+          if (showToastFlag) pushToast(mapped.content, 'info', { conversationId: convId, senderName, senderAvatar: finalAvatar, messageId: msgId, timestamp: payload.timestamp });
+        } catch (e) {
+          // ignore toast errors
+        }
+
+        // Dispatch global event for other UI pieces to react
+        try {
+          globalThis.dispatchEvent(new CustomEvent('tc:message:received', { detail: payload }));
+        } catch (e) {
+          console.error('Failed to dispatch message event', e);
+        }
+      } catch (e) {
+        console.error('Failed handling WS message event (message)', e);
       }
     }
   }, [fetchTrades]);
@@ -310,6 +479,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.error('Error fetching categories', e);
     }
   }, [viewerLocation]);
+
+  const fetchSkills = useCallback(async () => {
+    try {
+      const data = await (await import('../api/endpoints')).apiGetSkills();
+      const list = data?.results || data || [];
+      // map to simple objects expected by UI (id, name)
+      // but we'll keep them in `users`/`services` flow when needed
+      return list;
+    } catch (e) {
+      console.error('Error fetching skills', e);
+      return [];
+    }
+  }, []);
+
+  const fetchTags = useCallback(async () => {
+    try {
+      const data = await apiGetTags();
+      const list = data?.results || data || [];
+      setTags(list);
+    } catch (e) {
+      console.error('Error fetching tags', e);
+    }
+  }, []);
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -349,7 +541,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         const data = await apiGetServices(params.join('&'));
         const list = data?.results || data || [];
-        setServices(list.map(mapService));
+        const mapped = list.map(mapService);
+        setServices(mapped);
+        // Merge any embedded users from service payloads into global users list
+        setUsers(prev => {
+          const existing = new Map(prev.map(u => [u.id, u]));
+          mapped.forEach(s => { if (s.user && !existing.has(s.user.id)) existing.set(s.user.id, s.user); });
+          return Array.from(existing.values());
+        });
       } catch (e) {
         console.error('Error fetching services', e);
       } finally {
@@ -377,9 +576,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         params.push('my_city_only=true');
         if (currentUser?.city) params.push(`viewer_city=${encodeURIComponent(currentUser.city)}`);
       }
-      const data = await apiGetServices(params.join('&'));
-      const list = data?.results || data || [];
-      setServices(list.map(mapService));
+        const data = await apiGetServices(params.join('&'));
+        const list = data?.results || data || [];
+        const mapped = list.map(mapService);
+        setServices(mapped);
+        setUsers(prev => {
+          const existing = new Map(prev.map(u => [u.id, u]));
+          mapped.forEach(s => { if (s.user && !existing.has(s.user.id)) existing.set(s.user.id, s.user); });
+          return Array.from(existing.values());
+        });
     } catch (e) {
       console.error('Error searching services', e);
     }
@@ -410,6 +615,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return conversationsPromiseRef.current;
   }, []);
 
+  // keep refs in sync with state
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
+  useEffect(() => { usersRef.current = users; }, [users]);
+
+  useEffect(() => {
+    const handler = (e: any) => {
+      try {
+        const conv = e?.detail?.conversationId ?? e?.detail?.conv ?? e?.detail?.convId ?? null;
+        activeConvRef.current = conv ? String(conv) : null;
+      } catch (err) {
+        activeConvRef.current = null;
+      }
+    };
+    globalThis.addEventListener('tc:activeConversation', handler as EventListener);
+    return () => globalThis.removeEventListener('tc:activeConversation', handler as EventListener);
+  }, []);
+
   const fetchReviews = useCallback(async (userId: string) => {
     try {
       const data = await apiGetReviews(`reviewee=${userId}`);
@@ -430,6 +653,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const loadInitialData = useCallback(async (user: User) => {
     const tasks: Promise<any>[] = [
       fetchCategories(),
+      fetchTags(),
       fetchUsers(),
       fetchTrades(),
       fetchConversations(),
@@ -447,7 +671,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         try {
           const data = await apiGetServices(params);
           const list = data?.results || data || [];
-          setServices(list.map(mapService));
+          const mapped = list.map(mapService);
+          setServices(mapped);
+          setUsers(prev => {
+            const existing = new Map(prev.map(u => [u.id, u]));
+            mapped.forEach(s => { if (s.user && !existing.has(s.user.id)) existing.set(s.user.id, s.user); });
+            return Array.from(existing.values());
+          });
         } catch (e) {
           console.error('Error fetching services', e);
         }
@@ -457,7 +687,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     await Promise.all(tasks);
-  }, [fetchCategories, fetchUsers, fetchServices, fetchTrades, fetchConversations, fetchReviews, viewerLocation]);
+  }, [fetchCategories, fetchTags, fetchUsers, fetchServices, fetchTrades, fetchConversations, fetchReviews, viewerLocation]);
 
   // ── GEOLOCATION: ask once per session and store viewer coords
   // Restore any previously granted viewer coords (anonymous or auth) from sessionStorage
@@ -752,6 +982,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addService = useCallback(async (service: Omit<Service, 'id' | 'createdAt'>) => {
     try {
       const catId = apiCategoryMap[service.category];
+      // Ensure we have an up-to-date tags list to map names -> ids
+      let availableTags = tags;
+      if (!Array.isArray(availableTags) || availableTags.length === 0) {
+        try {
+          const data = await apiGetTags();
+          availableTags = data?.results || data || [];
+          setTags(availableTags);
+        } catch (err) {
+          console.warn('Failed to refresh tags before creating service', err);
+          availableTags = [];
+        }
+      }
+
+      // Map tag names to tag IDs (case-insensitive, trimmed)
+      const rawTagNames = Array.isArray((service as any).tags) ? (service as any).tags : [];
+      const tagIds: number[] = [];
+      const missingTagNames: string[] = [];
+      rawTagNames.forEach((t: any) => {
+        const name = String(t).trim();
+        const found = availableTags.find(at => at.name.toLowerCase() === name.toLowerCase());
+        if (found) tagIds.push(found.id);
+        else missingTagNames.push(name);
+      });
+      if (missingTagNames.length) {
+        try {
+          const created = await apiCreateTags(missingTagNames);
+          const createdList = (created?.results || created || []);
+          // merge created tags into availableTags and include their ids
+          createdList.forEach((t: any) => {
+            if (!availableTags.some((at: any) => at.id === t.id)) availableTags.push(t);
+            if (!tagIds.includes(t.id)) tagIds.push(t.id);
+          });
+          setTags(prev => {
+            const existing = new Map(prev.map(p => [p.id, p]));
+            createdList.forEach((t: any) => existing.set(t.id, t));
+            return Array.from(existing.values());
+          });
+        } catch (err) {
+          pushToast(`No se pudieron crear etiquetas: ${missingTagNames.join(', ')}`, 'info');
+        }
+      }
       const payload = {
         type: service.type,
         title: service.title,
@@ -760,14 +1031,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         duration: service.duration,
         credits: service.credits,
         status: service.status || 'active',
-        tag_ids: [],
+        tag_ids: tagIds,
+        skill_ids: (service as any).skill_ids || [],
       };
       const res = await apiCreateService(payload);
-      setServices(prev => [mapService(res), ...prev]);
+      const mapped = mapService(res);
+      setServices(prev => [mapped, ...prev]);
+      if (mapped.user) {
+        setUsers(prev => {
+          const existing = new Map(prev.map(u => [u.id, u]));
+          if (!existing.has(mapped.user.id)) existing.set(mapped.user.id, mapped.user);
+          return Array.from(existing.values());
+        });
+      }
     } catch (e) {
       console.error('Create service error', e);
     }
-  }, [apiCategoryMap]);
+  }, [apiCategoryMap, tags]);
 
   const updateService = useCallback(async (id: string, updates: Partial<Service>) => {
     try {
@@ -781,7 +1061,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         payload.category_id = apiCategoryMap[updates.category];
       }
       const res = await apiUpdateService(id, payload);
-      setServices(prev => prev.map(s => s.id === id ? mapService(res) : s));
+      const mapped = mapService(res);
+      setServices(prev => prev.map(s => s.id === id ? mapped : s));
+      if (mapped.user) {
+        setUsers(prev => {
+          const existing = new Map(prev.map(u => [u.id, u]));
+          if (!existing.has(mapped.user.id)) existing.set(mapped.user.id, mapped.user);
+          return Array.from(existing.values());
+        });
+      }
     } catch (e) {
       console.error('Update service error', e);
     }
@@ -936,6 +1224,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const existing = prev.filter(m => m.conversationId !== conversationId);
         return [...existing, ...msgs];
       });
+      // mark loaded messages as seen to avoid duplicate toasts later
+      try { msgs.forEach((m: Message) => messagesSeenRef.current.add(m.id)); } catch (e) {}
       loadedConvs.current.add(conversationId);
     } catch (e) {
       console.error('Load conv messages error', e);
@@ -948,6 +1238,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const msg = await apiSendMessage(conversationId, content);
       const mapped = mapMessage(msg, conversationId);
       setMessages(prev => [...prev, mapped]);
+      // mark our own sent message as seen so the incoming WS echo does not create a toast
+      try { messagesSeenRef.current.add(mapped.id); } catch (e) {}
       setConversations(prev => prev.map(c =>
         c.id === conversationId
           ? { ...c, lastMessage: content, lastTimestamp: new Date().toISOString() }

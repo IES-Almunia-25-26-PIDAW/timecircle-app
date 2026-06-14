@@ -47,7 +47,7 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from .views import (
     LoginView, RegisterView, MeView, LogoutView,
   WSPresenceHandshakeView,
-    UserViewSet, CategoryViewSet, TagViewSet, SkillViewSet,
+    UserViewSet, CategoryViewSet, TagViewSet,
     ServiceViewSet, TradeViewSet,
     ConversationViewSet, ReviewViewSet,
     AdminStatsView, AdminGeoStatsView, AdminUserViewSet, ContactView,
@@ -61,7 +61,6 @@ router = DefaultRouter()
 router.register(r'users',         UserViewSet,         basename='user')
 router.register(r'categories',    CategoryViewSet,     basename='category')
 router.register(r'tags',          TagViewSet,          basename='tag')
-router.register(r'skills',        SkillViewSet,        basename='skill')
 router.register(r'services',      ServiceViewSet,      basename='service')
 router.register(r'trades',        TradeViewSet,        basename='trade')
 router.register(r'conversations', ConversationViewSet, basename='conversation')

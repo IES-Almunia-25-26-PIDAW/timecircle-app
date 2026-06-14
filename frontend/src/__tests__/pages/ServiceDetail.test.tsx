@@ -313,9 +313,8 @@ describe('ServiceDetail', () => {
     fireEvent.click(reqEnd);
     await waitFor(() => expect(mockCtx.requestEnd).toHaveBeenCalled());
 
-    const confEnd = await screen.findByText(/Confirmar fin/i);
-    fireEvent.click(confEnd);
-    await waitFor(() => expect(mockCtx.confirmEnd).toHaveBeenCalled());
+    // Confirmar fin removed — ensure end-request count is shown instead
+    expect(await screen.findByText(/0\/2 personas/i)).toBeTruthy();
   });
 
   it('renders tags when service has tags', async () => {

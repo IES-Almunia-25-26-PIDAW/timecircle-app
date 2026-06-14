@@ -4,7 +4,8 @@ import {
   Star, Clock, ArrowLeftRight, MapPin, MessageCircle,
   Pencil, Calendar, Tag, Plus, Loader2,
 } from 'lucide-react';
-import { useApp } from '../context/AppContext';
+import { useApp, mapUser } from '../context/AppContext';
+import { apiGetUser } from '../api/endpoints';
 import Cropper from 'react-easy-crop';
 import type { Area } from 'react-easy-crop/types';
 import { CATEGORIES } from '../data/mockData';
@@ -315,7 +316,26 @@ export const Profile: React.FC = () => {
   const [activeTab, setActiveTab]   = useState<'services' | 'reviews' | 'stats'>('services');
   const [messaging, setMessaging]   = useState(false);
 
-  const user = getUserById(id);
+  const userFromStore = getUserById(id);
+  const [fetchedUser, setFetchedUser] = useState<any | null>(null);
+
+  // If user not present in global users list, fetch it once from API
+  useEffect(() => {
+    let mounted = true;
+    if (!userFromStore) {
+      (async () => {
+        try {
+          const data = await apiGetUser(id || '');
+          if (data && mounted) setFetchedUser(mapUser(data));
+        } catch (e) {
+          // ignore; keep showing loader
+        }
+      })();
+    }
+    return () => { mounted = false; };
+  }, [id, userFromStore]);
+
+  const user = userFromStore || fetchedUser;
   if (!user) return (
     <div className="text-center py-20 text-slate-400">
       <Loader2 className="w-8 h-8 animate-spin mx-auto mb-3 opacity-50" />

@@ -25,8 +25,7 @@ describe('AppContext additional branches', () => {
     const meData = { id: 7, username: 'bob', first_name: 'Bob', last_name: 'B' } as any;
 
     vi.spyOn(endpoints, 'apiGetMe').mockResolvedValue(meData);
-    vi.spyOn(endpoints, 'apiGetCategories').mockResolvedValue({ results: [] });
-    vi.spyOn(endpoints, 'apiGetUsers').mockResolvedValue({ results: [] });
+    vi.spyOn(endpoints, 'apiGetCategories').mockResolvedValue({ results: [] });  vi.spyOn(endpoints, 'apiGetTags').mockResolvedValue({ results: [] });    vi.spyOn(endpoints, 'apiGetUsers').mockResolvedValue({ results: [] });
     vi.spyOn(endpoints, 'apiGetTrades').mockResolvedValue({ results: [] });
     vi.spyOn(endpoints, 'apiGetConversations').mockResolvedValue({ results: [] });
     vi.spyOn(endpoints, 'apiGetReviews').mockResolvedValue({ results: [] });

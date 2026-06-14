@@ -15,7 +15,7 @@ from django.utils import timezone
 from datetime import timedelta
 
 from api.models import (
-    User, Category, Tag, Skill, UserSkill,
+    User, Category, Tag,
     Service, Trade, Transaction,
     Conversation, Message, Review,
 )
@@ -40,7 +40,6 @@ class Command(BaseCommand):
             Transaction.objects.all().delete()
             Trade.objects.all().delete()
             Service.objects.all().delete()
-            UserSkill.objects.all().delete()
             User.objects.filter(is_superuser=False).delete()
             self.stdout.write(self.style.SUCCESS('Datos eliminados.\n'))
 
@@ -49,7 +48,6 @@ class Command(BaseCommand):
         users      = self._create_users()
         services   = self._create_services(users, categories)
         trades     = self._create_trades(users, services)
-        self._create_skills(users)
         self._create_tags()
         self._create_conversations(users)
         self._create_reviews(users, trades)
@@ -121,8 +119,7 @@ class Command(BaseCommand):
     def _create_users(self):
         """
         Créditos de los usuarios demo reflejan el saldo tras su actividad:
-          - Bono primera skill:    +0,5 cr
-          - Bono primer servicio:  +0,5 cr
+          - Bono primer servicio:  +1,0 cr
           - Bono primer trade:     +1,0 cr (solo offerers)
           - Créditos de trades completados (positivos/negativos según rol)
         Los valores aquí son simplificaciones realistas de ese estado.
@@ -418,44 +415,6 @@ class Command(BaseCommand):
 
         return users
 
-    def _create_skills(self, users):
-        PROGRAMMING_PYTHON = 'Programación Python'
-        WEB_DESIGN = 'Diseño Web'
-        ELECTRICAL_REPAIRS = 'Reparaciones eléctricas'
-        GARDENING = 'Jardinería'
-        MEDITERRANEAN_COOKING = 'Cocina mediterránea'
-        YOGA = 'Yoga'
-        PHOTOGRAPHY = 'Fotografía'
-        ENGLISH = 'Inglés'
-        FRENCH = 'Francés'
-        PHYSIOTHERAPY = 'Fisioterapia'
-        TUTORING = 'Clases particulares'
-
-        skill_names = [
-            PROGRAMMING_PYTHON, WEB_DESIGN, ELECTRICAL_REPAIRS,
-            GARDENING, MEDITERRANEAN_COOKING, YOGA, PHOTOGRAPHY,
-            ENGLISH, FRENCH, PHYSIOTHERAPY, TUTORING,
-        ]
-        skills = []
-        for name in skill_names:
-            skill, _ = Skill.objects.get_or_create(name=name)
-            skills.append(skill)
-
-        assignments = [
-            (users[0], [GARDENING, MEDITERRANEAN_COOKING, TUTORING]),
-            (users[1], [PROGRAMMING_PYTHON, WEB_DESIGN, ENGLISH]),
-            (users[2], [YOGA, PHYSIOTHERAPY, ENGLISH]),
-            (users[3], [ELECTRICAL_REPAIRS]),
-            (users[4], [WEB_DESIGN, PHOTOGRAPHY, ENGLISH, FRENCH]),
-        ]
-        for user, skill_names_list in assignments:
-            for sname in skill_names_list:
-                skill = next((s for s in skills if s.name == sname), None)
-                if skill:
-                    UserSkill.objects.get_or_create(user=user, skill=skill)
-
-        return skills
-
     def _create_tags(self):
         tag_names = [
             'online', 'presencial', 'urgente', 'flexible', 'principiantes',
@@ -478,8 +437,9 @@ class Command(BaseCommand):
         EDUCATION = 'Educación'
         cat = {c.name: c for c in categories}
 
-        # Map users by username to allow referencing by name in services_data
+        # Map users by username and by id to allow flexible referencing in services_data
         users_map = {u.username: u for u in users}
+        users_by_id = {u.id: u for u in users}
 
         services_data = [
             {
@@ -704,12 +664,30 @@ class Command(BaseCommand):
         services = []
         for data in services_data:
             tag_names_list = data.pop('tag_names', [])
-            # Allow specifying user by username in services_data
+
+            # Resolve user flexibly: allow 'username' string, numeric id, or a User instance
             username = data.pop('username', None)
+            raw_user = data.pop('user', None)
+            resolved_user = None
             if username:
-                data['user'] = users_map.get(username)
-            if not data.get('user'):
+                resolved_user = users_map.get(username)
+            elif isinstance(raw_user, str):
+                # if a username string was passed in 'user'
+                resolved_user = users_map.get(raw_user)
+            elif isinstance(raw_user, int):
+                resolved_user = users_by_id.get(raw_user)
+            elif raw_user is not None:
+                # assume it's already a User instance
+                resolved_user = raw_user
+
+            if not resolved_user:
+                # Log and skip invalid service entries instead of creating a broken service
+                title = data.get('title', '<no title>')
+                self.stdout.write(self.style.WARNING(f"  Skipping service '{title}': user not found (username={username}, raw_user={raw_user})"))
                 continue
+
+            data['user'] = resolved_user
+
             if not Service.objects.filter(title=data['title'], user=data['user']).exists():
                 service = Service.objects.create(**data)
                 tags_to_add = Tag.objects.filter(name__in=tag_names_list)
@@ -843,7 +821,16 @@ class Command(BaseCommand):
                 data['offerer'] = users_map.get(offerer_username)
             if requester_username:
                 data['requester'] = users_map.get(requester_username)
-            if not data.get('service') or not data.get('offerer') or not data.get('requester'):
+
+            # Defensive checks: skip trades where referenced objects are missing
+            if not data.get('service'):
+                self.stdout.write(self.style.WARNING(f"  Skipping trade: service not found (user={service_username}, title={service_title})"))
+                continue
+            if not data.get('offerer'):
+                self.stdout.write(self.style.WARNING(f"  Skipping trade: offerer not found (username={offerer_username})"))
+                continue
+            if not data.get('requester'):
+                self.stdout.write(self.style.WARNING(f"  Skipping trade: requester not found (username={requester_username})"))
                 continue
 
             completed_at = data.pop('completed_at', None)

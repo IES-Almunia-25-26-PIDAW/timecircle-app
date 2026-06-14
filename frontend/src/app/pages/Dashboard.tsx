@@ -55,7 +55,7 @@ const TradeStatusBadge: React.FC<{ status: string }> = ({ status }) => {
 };
 
 export const Dashboard: React.FC = () => {
-  const { currentUser, getUserTrades, services, getServiceById, getUserById, reviews, viewerLocation } = useApp();
+  const { currentUser, getUserTrades, services, getServiceById, getUserById, reviews, viewerLocation, updateService, showConfirm } = useApp();
 
   type TypeFilter = 'all' | 'offer' | 'request';
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
@@ -291,14 +291,34 @@ export const Dashboard: React.FC = () => {
                       {cat?.icon || '✨'}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-slate-800 truncate" style={{ fontSize: '0.875rem', fontWeight: 500 }}>{service.title}</div>
-                      <div className="text-slate-400" style={{ fontSize: '0.75rem' }}>
-                        {service.type === 'offer' ? '✋ Oferta' : '🙋 Solicitud'} · {service.credits}h
-                      </div>
+                      <Link to={`/services/${service.id}`} className="block">
+                        <div className="text-slate-800 truncate" style={{ fontSize: '0.875rem', fontWeight: 500 }}>{service.title}</div>
+                        <div className="text-slate-400" style={{ fontSize: '0.75rem' }}>
+                          {service.type === 'offer' ? '✋ Oferta' : '🙋 Solicitud'} · {service.credits}h
+                        </div>
+                      </Link>
                     </div>
-                    <span className={`px-2 py-0.5 rounded-full ${service.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`} style={{ fontSize: '0.7rem' }}>
-                      {service.status === 'active' ? 'Activo' : 'Pausado'}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <Link to={`/services/${service.id}/edit`} className="text-teal-600 hover:text-teal-700 text-sm">Editar</Link>
+                      <button
+                        onClick={async () => {
+                          const newStatus = service.status === 'active' ? 'paused' : 'active';
+                          const ok = await showConfirm(`¿Quieres ${newStatus === 'active' ? 'activar' : 'desactivar'} este servicio?`);
+                          if (!ok) return;
+                          try {
+                            await updateService(service.id, { status: newStatus as any });
+                          } catch (e) {
+                            console.error('Failed to toggle service status', e);
+                          }
+                        }}
+                        className="px-2 py-1 rounded-lg border text-sm"
+                      >
+                        {service.status === 'active' ? 'Pausar' : 'Activar'}
+                      </button>
+                      <span className={`px-2 py-0.5 rounded-full ${service.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`} style={{ fontSize: '0.7rem' }}>
+                        {service.status === 'active' ? 'Activo' : 'Pausado'}
+                      </span>
+                    </div>
                   </div>
                 );
               })}

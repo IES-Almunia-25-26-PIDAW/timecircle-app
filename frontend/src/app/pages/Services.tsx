@@ -26,7 +26,7 @@ const ServiceCard: React.FC<{ service: Service }> = ({ service }) => {
   }
 
   return (
-    <Link to={`/services/${service.id}`} className="group block bg-white border border-slate-100 rounded-2xl p-5 hover:shadow-md hover:border-teal-200 transition-all">
+    <Link to={`/services/${service.id}`} className="group block bg-white border border-slate-100 rounded-2xl p-5 hover:shadow-md hover:border-teal-200 transition-all flex flex-col h-full">
       <div className="flex items-start justify-between mb-3">
         <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${cat?.color || 'bg-gray-100'}`} style={{ fontSize: '1.3rem' }}>
           {cat?.icon || '✨'}
@@ -63,16 +63,20 @@ const ServiceCard: React.FC<{ service: Service }> = ({ service }) => {
         {service.description}
       </p>
 
-      {/* Tags */}
-      <div className="flex flex-wrap gap-1 mb-4">
-        {service.tags.slice(0, 3).map(tag => (
-          <span key={tag} className="px-2 py-0.5 bg-slate-100 text-slate-500 rounded-full" style={{ fontSize: '0.7rem' }}>
-            #{tag}
-          </span>
-        ))}
-      </div>
+      {/* Tags - Enhanced Visibility */}
+      {service.tags.length > 0 && (
+        <div className="mb-4">
+          <div className="flex flex-wrap gap-2">
+            {service.tags.map(tag => (
+              <span key={tag} className="inline-flex items-center gap-1 px-2.5 py-1 bg-teal-50 text-teal-700 rounded-lg border border-teal-200 hover:bg-teal-100 transition-colors" style={{ fontSize: '0.75rem', fontWeight: 500 }}>
+                <span>#</span>{tag}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
-      <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+      <div className="flex items-center justify-between pt-3 border-t border-slate-100 mt-auto">
         <div className="flex items-center gap-2">
           <img src={user?.avatar} alt={user?.name} className="w-7 h-7 rounded-full border border-slate-200" />
           <div>
@@ -94,10 +98,20 @@ export const Services: React.FC = () => {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'offer' | 'request'>('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [showFilters, setShowFilters] = useState(false);
   const { searchServices, updateProfile } = useApp();
   const [maxDistanceKm, setMaxDistanceKm] = useState<number>(currentUser?.searchRadiusKm ?? 25);
   const [myCityOnly, setMyCityOnly] = useState<boolean>(currentUser?.searchMyCityOnly ?? false);
+
+  // Extract all unique tags from services
+  const allTags = useMemo(() => {
+    const tags = new Set<string>();
+    services.forEach(s => {
+      s.tags.forEach(tag => tags.add(tag));
+    });
+    return Array.from(tags).sort((a, b) => a.localeCompare(b));
+  }, [services]);
 
   const filtered = useMemo(() => {
     return services.filter(s => {
@@ -105,13 +119,14 @@ export const Services: React.FC = () => {
       if (s.status !== 'active') return false;
       if (typeFilter !== 'all' && s.type !== typeFilter) return false;
       if (categoryFilter !== 'all' && s.category !== categoryFilter) return false;
+      if (selectedTags.size > 0 && !s.tags.some(tag => selectedTags.has(tag))) return false;
       if (search) {
         const q = search.toLowerCase();
         return s.title.toLowerCase().includes(q) || s.description.toLowerCase().includes(q) || s.tags.some(t => t.includes(q));
       }
       return true;
     });
-  }, [services, currentUser, search, typeFilter, categoryFilter]);
+  }, [services, currentUser, search, typeFilter, categoryFilter, selectedTags]);
 
   const offers = filtered.filter(s => s.type === 'offer');
   const requests = filtered.filter(s => s.type === 'request');
@@ -195,6 +210,35 @@ export const Services: React.FC = () => {
                 </button>
               ))}
             </div>
+
+            {/* Tags filter */}
+            {allTags.length > 0 && (
+              <div>
+                <div className="text-slate-700 mb-2" style={{ fontSize: '0.85rem', fontWeight: 600 }}>
+                  Filtrar por etiquetas
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  {allTags.map(tag => (
+                    <button
+                      key={tag}
+                      onClick={() => {
+                        const newTags = new Set(selectedTags);
+                        if (newTags.has(tag)) {
+                          newTags.delete(tag);
+                        } else {
+                          newTags.add(tag);
+                        }
+                        setSelectedTags(newTags);
+                      }}
+                      className={`px-3 py-1.5 rounded-lg transition-colors ${selectedTags.has(tag) ? 'bg-teal-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                      style={{ fontSize: '0.8rem' }}
+                    >
+                      #{tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {/* Distance & locality filters */}
             <div className="grid sm:grid-cols-3 gap-3 pt-2">
               <div>

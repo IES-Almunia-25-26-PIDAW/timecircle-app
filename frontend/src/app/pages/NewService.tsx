@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router';
+import { useNavigate, Link, useParams } from 'react-router';
 import { ArrowLeft, Clock, Plus, X } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { CATEGORIES } from '../data/mockData';
 
 export const NewService: React.FC = () => {
-  const { currentUser, addService } = useApp();
+  const { currentUser, addService, updateService, getServiceById, showToast } = useApp();
+  const { id } = useParams<{ id?: string }>();
+  const isEdit = Boolean(id);
   const navigate = useNavigate();
 
   const [type, setType] = useState<'offer' | 'request'>('offer');
@@ -32,6 +34,8 @@ export const NewService: React.FC = () => {
   const validate = () => {
     const e: Record<string, string> = {};
     if (!title.trim()) e.title = 'El título es obligatorio';
+    if (title.trim().length < 5) e.title = 'Mínimo 5 caracteres';
+    if (title.trim().length > 80) e.title = 'Máximo 80 caracteres';
     if (title.length > 80) e.title = 'Máximo 80 caracteres';
     if (!description.trim()) e.description = 'La descripción es obligatoria';
     if (!category) e.category = 'Selecciona una categoría';
@@ -48,19 +52,66 @@ export const NewService: React.FC = () => {
     }
     setSubmitting(true);
     await new Promise(r => setTimeout(r, 500));
-    addService({
-      userId: currentUser.id,
-      type,
-      title: title.trim(),
-      description: description.trim(),
-      category,
-      duration,
-      credits,
-      status: 'active',
-      tags,
-    });
-    navigate('/services');
+    try {
+      if (isEdit && id) {
+        await updateService(id, {
+          type,
+          title: title.trim(),
+          description: description.trim(),
+          category,
+          duration,
+          credits,
+          tags,
+        });
+        navigate(`/services/${id}`);
+      } else {
+        if (!currentUser) {
+          console.error('No current user available when creating service');
+          setSubmitting(false);
+          return;
+        }
+        await addService({
+          userId: currentUser.id,
+          type,
+          title: title.trim(),
+          description: description.trim(),
+          category,
+          duration,
+          credits,
+          status: 'active',
+          tags,
+        });
+        navigate('/services');
+      }
+    } finally {
+      setSubmitting(false);
+    }
   };
+
+  React.useEffect(() => {
+    if (!isEdit || !id) return;
+    const svc = getServiceById(id);
+    if (!svc) return;
+    // Only the owner may edit a service — redirect others
+    if (!currentUser || svc.userId !== currentUser.id) {
+      try { showToast('No estás autorizado para editar este servicio', 'error'); } catch (e) { /* noop */ }
+      navigate(`/services/${id}`, { replace: true });
+      return;
+    }
+  }, [isEdit, id, getServiceById, currentUser, navigate, showToast]);
+
+  React.useEffect(() => {
+    if (!isEdit || !id) return;
+    const svc = getServiceById(id);
+    if (!svc) return;
+    setType(svc.type as 'offer' | 'request');
+    setTitle(svc.title || '');
+    setDescription(svc.description || '');
+    setCategory(svc.category || '');
+    setDuration(svc.duration ?? 60);
+    setCredits(svc.credits ?? 1);
+    setTags(svc.tags || []);
+  }, [isEdit, id, getServiceById]);
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -71,11 +122,11 @@ export const NewService: React.FC = () => {
 
       <div className="bg-white border border-slate-100 rounded-2xl p-6 md:p-8">
         <div className="mb-6">
-          <h1 className="text-slate-900" style={{ fontSize: '1.4rem', fontWeight: 700 }}>Publicar servicio</h1>
-          <p className="text-slate-500 mt-1" style={{ fontSize: '0.875rem' }}>
-            Ofrece tus habilidades o solicita ayuda a la comunidad
-          </p>
-        </div>
+                <h1 className="text-slate-900" style={{ fontSize: '1.4rem', fontWeight: 700 }}>{isEdit ? 'Editar servicio' : 'Publicar servicio'}</h1>
+                <p className="text-slate-500 mt-1" style={{ fontSize: '0.875rem' }}>
+                  {isEdit ? 'Modifica los detalles de tu servicio' : 'Ofrece tus habilidades o solicita ayuda a la comunidad'}
+                </p>
+              </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
           {/* Type */}
@@ -83,35 +134,6 @@ export const NewService: React.FC = () => {
             <fieldset className="p-0 m-0">
               <legend className="block text-slate-700 mb-2" style={{ fontWeight: 600, fontSize: '0.875rem' }}>
                 Tipo de publicación
-              </legend>
-              <div className="grid grid-cols-2 gap-3">
-              {([
-                { val: 'offer', label: '✋ Ofrezco ayuda', desc: 'Quiero dar algo a la comunidad' },
-                { val: 'request', label: '🙋 Solicito ayuda', desc: 'Necesito que alguien me ayude' },
-              ] as const).map(({ val, label, desc }) => (
-                <button
-                  key={val}
-                  type="button"
-                  onClick={() => setType(val)}
-                  className={`p-4 rounded-xl border-2 text-left transition-all ${
-                    type === val
-                      ? 'border-teal-500 bg-teal-50'
-                      : 'border-slate-200 hover:border-teal-300'
-                  }`}
-                >
-                  <div style={{ fontWeight: 600, fontSize: '0.9rem' }} className="text-slate-900">{label}</div>
-                  <div className="text-slate-500 mt-0.5" style={{ fontSize: '0.75rem' }}>{desc}</div>
-                </button>
-              ))}
-              </div>
-            </fieldset>
-          </div>
-
-          {/* Category */}
-          <div>
-            <fieldset className="p-0 m-0">
-              <legend className="block text-slate-700 mb-2" style={{ fontWeight: 600, fontSize: '0.875rem' }}>
-                Categoría *
               </legend>
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
               {CATEGORIES.map(cat => (
@@ -273,7 +295,7 @@ export const NewService: React.FC = () => {
             className="w-full py-3 bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white rounded-xl transition-colors"
             style={{ fontWeight: 600 }}
           >
-            {submitting ? 'Publicando...' : 'Publicar servicio'}
+            {submitting ? (isEdit ? 'Guardando...' : 'Publicando...') : (isEdit ? 'Guardar cambios' : 'Publicar servicio')}
           </button>
         </form>
       </div>

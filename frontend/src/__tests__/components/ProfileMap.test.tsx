@@ -12,6 +12,7 @@ if (!(globalThis as any).__PROFILE_MAP_MOCKS) {
     vectorSourceInstances: [] as any[],
     featureInstances: [] as any[],
     pointInstances: [] as any[],
+    circleGeomInstances: [] as any[],
     styleInstances: [] as any[],
     circleStyleInstances: [] as any[],
     fillInstances: [] as any[],
@@ -28,6 +29,7 @@ const mocks = (globalThis as any).__PROFILE_MAP_MOCKS as {
   vectorSourceInstances: any[]
   featureInstances: any[]
   pointInstances: any[]
+  circleGeomInstances: any[]
   styleInstances: any[]
   circleStyleInstances: any[]
   fillInstances: any[]
@@ -84,6 +86,14 @@ vi.mock('ol/source/Vector', () => ({
       this.opts = opts
       mocks.vectorSourceInstances.push(this)
     }
+    clear() {
+      if (this.opts && Array.isArray(this.opts.features)) this.opts.features.length = 0
+    }
+    addFeature(f: any) {
+      if (!this.opts) this.opts = {}
+      if (!Array.isArray(this.opts.features)) this.opts.features = []
+      this.opts.features.push(f)
+    }
   },
 }))
 vi.mock('ol/Feature', () => ({
@@ -105,6 +115,17 @@ vi.mock('ol/geom/Point', () => ({
     constructor(coord: any) {
       this.coord = coord
       mocks.pointInstances.push(this)
+    }
+  },
+}))
+vi.mock('ol/geom/Circle', () => ({
+  default: class {
+    coord: any
+    radius: number
+    constructor(coord: any, radius: number) {
+      this.coord = coord
+      this.radius = radius
+      mocks.circleGeomInstances.push(this)
     }
   },
 }))
@@ -157,6 +178,7 @@ describe('ProfileMap', () => {
     mocks.vectorSourceInstances.length = 0
     mocks.featureInstances.length = 0
     mocks.pointInstances.length = 0
+    mocks.circleGeomInstances.length = 0
     mocks.styleInstances.length = 0
     mocks.circleStyleInstances.length = 0
     mocks.fillInstances.length = 0
@@ -224,6 +246,24 @@ describe('ProfileMap', () => {
     expect(mocks.strokeInstances[0].opts).toEqual({ color: '#ffffff', width: 2 })
     expect(mocks.styleInstances[0].opts.image).toBe(mocks.circleStyleInstances[0])
     expect(mocks.featureInstances[0].style).toBe(mocks.styleInstances[0])
+  })
+
+  it('displays 0.5 km privacy circle when shareExactLocation is false', async () => {
+    render(<ProfileMap lat={40} lon={-3} zoom={10} shareExactLocation={false} />)
+
+    await waitFor(() => {
+      expect(mocks.featureInstances.length).toBe(1)
+      expect(mocks.circleGeomInstances.length).toBe(1)
+    })
+
+    const circleGeom = mocks.circleGeomInstances[0]
+    expect(circleGeom.coord).toEqual([-3, 40])
+    expect(circleGeom.radius).toBeGreaterThan(0)
+
+    const style = mocks.styleInstances[0]
+    expect(style.opts.fill).toBeDefined()
+    expect(style.opts.stroke).toBeDefined()
+    expect(style.opts.stroke.opts.lineDash).toEqual([5, 5])
   })
 
   it('animates the existing map view when coordinates or zoom change', async () => {

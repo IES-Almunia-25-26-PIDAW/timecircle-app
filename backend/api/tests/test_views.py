@@ -10,9 +10,9 @@ import decimal
 
 from api.tests.factories import (
     make_user, make_admin, make_conversation, make_message,
-    make_category, make_skill, make_service, make_trade, make_completed_trade, make_review
+    make_category, make_service, make_trade, make_completed_trade, make_review
 )
-from api.models import PasswordResetCode, UserPresence, ContactMessage, Message, Conversation, Transaction, Review, Trade
+from api.models import PasswordResetCode, UserPresence, ContactMessage, Message, Conversation, Transaction, Review, Trade, Service
 from api.serializers import TradeCreateSerializer, TradeNegotiationSerializer, TradeSerializer, TradeStatusUpdateSerializer
 from api.views import TradeViewSet
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -237,20 +237,6 @@ class UserViewsTests(TestCase):
         self.assertEqual(r5.status_code, 200)
         self.assertIn('monthly_activity', r5.data)
 
-    def test_skills_post_awards_onboarding_bonus(self):
-        user = make_user(username='skuser', email='sk@example.com', credits=decimal.Decimal('0.0'))
-        skill = make_skill(name='TestingSkill')
-        self.client.force_authenticate(user=user)
-
-        resp = self.client.post('/api/users/skills/', {'skill_id': skill.id}, format='json')
-        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
-
-        user.refresh_from_db()
-        # bonus of 0.5 awarded
-        self.assertAlmostEqual(float(user.credits), 0.5)
-        tx = Transaction.objects.filter(user=user, amount=decimal.Decimal('0.5')).first()
-        self.assertIsNotNone(tx)
-
 
 class MeViewPatchTests(TestCase):
     def setUp(self):
@@ -292,21 +278,9 @@ class MeViewPatchTests(TestCase):
         self.assertEqual(user.last_name, 'Updated')
 
 
-class SkillAndServicePermissionsTests(TestCase):
+class ServicePermissionsTests(TestCase):
     def setUp(self):
         self.client = APIClient()
-
-    def test_skill_create_requires_admin(self):
-        user = make_user(username='normal', email='normal@x.com')
-        self.client.force_authenticate(user=user)
-        resp = self.client.post('/api/skills/', {'name': 'NewSkill', 'description': 'x'}, format='json')
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
-
-        admin = make_admin(username='admin1', email='admin1@x.com')
-        self.client.force_authenticate(user=admin)
-        resp2 = self.client.post('/api/skills/', {'name': 'NewSkill', 'description': 'x'}, format='json')
-        self.assertEqual(resp2.status_code, status.HTTP_201_CREATED)
-
     def test_service_create_awards_first_service_bonus_and_owner_checks(self):
         user = make_user(username='suser', email='suser@example.com', credits=decimal.Decimal('0.0'))
         cat = make_category(name='CatTest')

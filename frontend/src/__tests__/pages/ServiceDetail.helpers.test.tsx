@@ -92,11 +92,11 @@ describe('ServiceDetail helpers and subcomponents', () => {
     );
     expect(screen.getByText(/Solicitar inicio/i)).toBeTruthy();
 
-    // in_progress -> Solicitar fin + Confirmar fin
+    // in_progress -> Solicitar fin + end-request count
     rerender(
       <ActiveTradeActions myActiveTrade={{ status: 'in_progress' }} currentUser={{ id: '1' }} handleRequestStart={req} handleConfirmStart={conf} handleRequestEnd={reqEnd} handleConfirmEnd={confEnd} />
     );
     expect(screen.getByText(/Solicitar fin/i)).toBeTruthy();
-    expect(screen.getByText(/Confirmar fin/i)).toBeTruthy();
+    expect(screen.getByText(/0\/2 personas/i)).toBeTruthy();
   });
 });

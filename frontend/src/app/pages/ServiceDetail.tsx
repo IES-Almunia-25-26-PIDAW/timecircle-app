@@ -189,15 +189,23 @@ const ActiveTradeActions: React.FC<{
         <button className="flex-1 py-2 rounded-xl bg-purple-100 text-purple-400 cursor-default" disabled>Inicio solicitado</button>
       );
     }
+    const startCount = myActiveTrade.startedById ? 1 : 0;
+    const totalParticipants = 2;
     return (
-      <button onClick={handleConfirmStart} className="flex-1 py-2 border border-teal-600 text-teal-600 rounded-xl">Confirmar inicio</button>
+      <div className="flex-1 py-2 rounded-xl bg-green-50 text-green-700 flex items-center justify-center" style={{ fontWeight: 600 }}>
+        {`${startCount}/${totalParticipants} personas quieren iniciar`}
+      </div>
     );
   }
   if (myActiveTrade.status === 'in_progress') {
+    const endCount = Array.isArray(myActiveTrade.endConfirmations) ? myActiveTrade.endConfirmations.length : 0;
+    const totalParticipants = 2; // default pairwise trade
     return (
       <>
         <button onClick={handleRequestEnd} className="flex-1 py-2 bg-yellow-500 text-white rounded-xl">Solicitar fin</button>
-        <button onClick={handleConfirmEnd} className="flex-1 py-2 bg-green-600 text-white rounded-xl">Confirmar fin</button>
+        <div className="flex-1 py-2 rounded-xl bg-green-50 text-green-700 flex items-center justify-center" style={{ fontWeight: 600 }}>
+          {`${endCount}/${totalParticipants} personas quieren finalizar`}
+        </div>
       </>
     );
   }
@@ -211,7 +219,7 @@ export const ServiceDetail: React.FC = () => {
   const navigate = useNavigate();
   const {
     currentUser, getServiceById, getUserById, getUserReviews,
-    createTrade, startConversation, deleteService, trades,
+    createTrade, startConversation, deleteService, trades, updateService,
     requestStart, confirmStart, requestEnd, confirmEnd, showConfirm,
   } = useApp();
 
@@ -368,13 +376,16 @@ export const ServiceDetail: React.FC = () => {
             )}
 
             {service.tags.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {service.tags.map(tag => (
-                  <span key={tag} className="flex items-center gap-1 px-3 py-1 bg-slate-100 text-slate-600 rounded-full" style={{ fontSize: '0.8rem' }}>
-                    <Tag className="w-3 h-3" />
-                    {tag}
-                  </span>
-                ))}
+              <div className="mb-5">
+                <h3 className="text-slate-700 mb-3" style={{ fontWeight: 600, fontSize: '0.9rem' }}>Etiquetas</h3>
+                <div className="flex flex-wrap gap-2">
+                  {service.tags.map(tag => (
+                    <span key={tag} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-teal-50 text-teal-700 rounded-lg border border-teal-200 hover:bg-teal-100 transition-colors" style={{ fontSize: '0.85rem', fontWeight: 500 }}>
+                      <Tag className="w-3.5 h-3.5" />
+                      {tag}
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -383,23 +394,43 @@ export const ServiceDetail: React.FC = () => {
               <div className="mb-5">
                 <h3 className="text-slate-700 mb-2" style={{ fontWeight: 600, fontSize: '0.9rem' }}>Ubicación del proveedor</h3>
                 <div style={{ height: 320, width: '100%' }}>
-                  <ProfileMap lat={Number(ownerLat)} lon={Number(ownerLon)} zoom={12} />
+                  <ProfileMap lat={Number(ownerLat)} lon={Number(ownerLon)} zoom={12} shareExactLocation={Boolean(owner?.shareExactLocation)} />
                 </div>
-                <div className="text-slate-500 text-sm mt-2">Se muestra la ubicación guardada en el perfil del proveedor.</div>
+                <div className="text-slate-500 text-sm mt-2">{owner?.shareExactLocation ? 'Se muestra la ubicación exacta guardada en el perfil del proveedor.' : 'Se muestra una zona de aproximadamente 0,5 km alrededor de la ubicación para proteger la privacidad del proveedor.'}</div>
               </div>
             )}
 
                     {isOwner && (
-              <div className="mt-5 pt-5 border-t border-slate-100 flex gap-2">
-                <button
-                  onClick={handleDelete}
-                  className="flex items-center gap-2 px-4 py-2 border border-red-200 text-red-600 hover:bg-red-50 rounded-xl transition-colors"
-                  style={{ fontSize: '0.875rem' }}
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Eliminar
-                </button>
-              </div>
+                      <div className="mt-5 pt-5 border-t border-slate-100 flex gap-2">
+                        <Link to={`/services/${service.id}/edit`} className="flex items-center gap-2 px-4 py-2 text-teal-600 hover:bg-teal-50 rounded-xl transition-colors" style={{ fontSize: '0.875rem' }}>
+                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                          Editar
+                        </Link>
+                        <button
+                          onClick={async () => {
+                            const newStatus = service.status === 'active' ? 'paused' : 'active';
+                            const ok = await showConfirm(`¿Quieres ${newStatus === 'active' ? 'activar' : 'desactivar'} este servicio?`);
+                            if (!ok) return;
+                            try {
+                              await updateService(service.id, { status: newStatus as any });
+                            } catch (e) {
+                              console.error('Failed toggling service status', e);
+                            }
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 border rounded-xl transition-colors"
+                          style={{ fontSize: '0.875rem' }}
+                        >
+                          {service.status === 'active' ? 'Pausar' : 'Activar'}
+                        </button>
+                        <button
+                          onClick={handleDelete}
+                          className="flex items-center gap-2 px-4 py-2 border border-red-200 text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                          style={{ fontSize: '0.875rem' }}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Eliminar
+                        </button>
+                      </div>
                     )}
           </div>
 

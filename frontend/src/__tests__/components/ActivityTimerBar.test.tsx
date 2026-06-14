@@ -72,10 +72,8 @@ describe('ActivityTimerBar', () => {
     expect(screen.getByText('Desde inicio')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /Solicitar fin/i }))
-    fireEvent.click(screen.getByRole('button', { name: /Confirmar fin/i }))
-
+    await expect(screen.findByText(/0\/2 quieren finalizar/i)).resolves.toBeTruthy()
     expect(requestEnd).toHaveBeenCalledWith(5)
-    expect(confirmEnd).toHaveBeenCalledWith(5)
   })
 
   it('renders accepted trade with start actions and refreshes on event', () => {

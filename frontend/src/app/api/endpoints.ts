@@ -85,6 +85,15 @@ export const apiGetUserReviews = (id: number | string) =>
 
 export const apiGetCategories = () => apiFetch('/api/categories/?page_size=50');
 
+// Skills
+export const apiGetSkills = () => apiFetch('/api/skills/?page_size=200');
+export const apiCreateSkill = (data: any) => apiFetch('/api/skills/', { method: 'POST', body: JSON.stringify(data) });
+
+// Tags
+export const apiGetTags = () => apiFetch('/api/tags/?page_size=200');
+export const apiCreateTags = (names: string[]) =>
+  apiFetch('/api/tags/bulk_create/', { method: 'POST', body: JSON.stringify({ names }) });
+
 // ── SERVICES ─────────────────────────────────────────────
 
 export const apiGetServices = (params = '') =>
@@ -101,6 +110,7 @@ export const apiDeleteService = (id: number | string) =>
 
 export const apiGetTrades = (params = '') =>
   apiFetch(`/api/trades/${params ? '?' + params : ''}`);
+export const apiGetTrade = (id: number | string) => apiFetch(`/api/trades/${id}/`);
 export const apiCreateTrade = (data: any) =>
   apiFetch('/api/trades/', { method: 'POST', body: JSON.stringify(data) });
 export const apiUpdateTradeStatus = (id: number | string, status: string) =>

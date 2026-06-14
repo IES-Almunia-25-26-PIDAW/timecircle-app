@@ -3,7 +3,7 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.translation import gettext_lazy as _
 
 from .models import (
-    User, Category, Tag, Skill, UserSkill,
+    User, Category, Tag,
     Service, Trade, Transaction,
     Conversation, Message, Review, ContactMessage
 )
@@ -49,20 +49,6 @@ class CategoryAdmin(admin.ModelAdmin):
 class TagAdmin(admin.ModelAdmin):
     list_display  = ['name']
     search_fields = ['name']
-
-
-@admin.register(Skill)
-class SkillAdmin(admin.ModelAdmin):
-    list_display  = ['name', 'description']
-    search_fields = ['name']
-
-
-@admin.register(UserSkill)
-class UserSkillAdmin(admin.ModelAdmin):
-    list_display  = ['user', 'skill']
-    search_fields = ['user__username', 'skill__name']
-    list_filter   = ['skill']
-
 
 # ── Servicios ────────────────────────────────────────────
 

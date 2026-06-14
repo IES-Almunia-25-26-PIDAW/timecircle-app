@@ -211,7 +211,7 @@ describe('Trades branches', () => {
     const reqBtn = await screen.findByText('Solicitar fin')
     expect(reqBtn).toBeTruthy()
 
-    const confBtn = await screen.findByText('Confirmar fin')
-    expect(confBtn).toBeTruthy()
+    // Confirmar fin removed — the UI shows an end-request count
+    expect(await screen.findByText(/0\/2 personas/i)).toBeTruthy()
   })
 })
